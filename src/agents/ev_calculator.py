@@ -142,6 +142,9 @@ Output a BetRecommendation.
 """
 
 
+from src.tools.kelly import apply_kelly_to_recommendation
+
+
 async def analyze_game_market(
     game: Game,
     bet_type: BetType,
@@ -150,10 +153,16 @@ async def analyze_game_market(
     """
     Run the EV agent for one specific market of a game.
     Returns a BetRecommendation with embedded CoT reasoning.
+    The recommended_units field is post-processed with hard Kelly math.
     """
     prompt = build_game_prompt(game, bet_type, side)
     result = await ev_agent.run(prompt)
-    return result.output
+    rec = result.output
+
+    # Override agent's unit suggestion with hard quarter-Kelly math (Week 2 improvement)
+    apply_kelly_to_recommendation(rec)
+
+    return rec
 
 
 async def analyze_full_slate(games: list[Game]) -> DailySlate:

@@ -148,6 +148,42 @@ class DailySlate(BaseModel):
     bets: List[BetRecommendation]
     total_units_at_risk: float
 
+    @model_validator(mode="after")
+    def deduplicate_opposite_sides(self) -> DailySlate:
+        """
+        Safety: if both sides of the same market are recommended
+        (e.g. UConn -7.5 AND Villanova +7.5 both fire as +EV),
+        keep only the one with higher expected_value and flag the other.
+        This prevents betting against ourselves on the same game.
+        """
+        # Group recommended bets by (game_id, bet_type)
+        from collections import defaultdict
+        groups: dict = defaultdict(list)
+        for bet in self.bets:
+            if bet.is_recommended:
+                key = (bet.game_id, bet.bet_type)
+                groups[key].append(bet)
+
+        # For each group with >1 recommended, keep the best EV, suppress the rest
+        for key, group_bets in groups.items():
+            if len(group_bets) > 1:
+                # Sort by EV descending; keep the top one
+                group_bets.sort(
+                    key=lambda b: b.ev_analysis.expected_value, reverse=True
+                )
+                for loser in group_bets[1:]:
+                    loser.is_recommended = False
+                    loser.summary = (
+                        f"[SUPPRESSED — opposite side also +EV] {loser.summary}"
+                    )
+
+        # Recalculate total units after dedup
+        self.total_units_at_risk = sum(
+            b.recommended_units for b in self.bets if b.is_recommended
+        )
+        return self
+
     @property
     def positive_ev_bets(self) -> List[BetRecommendation]:
         return [b for b in self.bets if b.is_recommended]
+
