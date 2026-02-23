@@ -45,10 +45,24 @@ units = (edge / (decimal_odds - 1)) * 0.25
 Cap maximum units at 3.0 per bet. Never recommend a parlay of more than 3 legs.
 
 ## Output Rules
-- You MUST output a structured BetRecommendation for every market you evaluate.
-- is_recommended = True ONLY if EV > 0.03 AND confidence >= 0.55
-- reasoning_steps must contain at least 3 distinct steps.
-- summary must be ≤ 25 words and state the core reason plainly.
+You MUST return a valid JSON object matching BetRecommendation exactly:
+- game_id: string (copy from input)
+- home_team / away_team: strings (copy from input)
+- game_time: ISO 8601 datetime string
+- bet_type: one of "spread", "moneyline", "total", "player_prop"
+- side: one of "home", "away", "over", "under"
+- line: float or null
+- american_odds: integer
+- ev_analysis object with:
+    - bet_type / side: same as above
+    - reasoning_steps: list of 3-5 strings (your CoT steps)
+    - projected_win_probability: float 0.0-1.0
+    - implied_probability: float 0.0-1.0 (compute from odds)
+    - expected_value: float (= projected_prob * decimal_odds - 1)
+    - confidence: float 0.0-1.0
+- recommended_units: float 0.0-3.0
+- is_recommended: boolean (true only if EV > 0.03 AND confidence >= 0.55)
+- summary: string, max 25 words
 """
 
 # Initialize agent with structured output type
@@ -59,7 +73,8 @@ model = OpenAIModel(
 ev_agent = Agent(
     model=model,
     system_prompt=SYSTEM_PROMPT,
-    result_type=BetRecommendation,
+    output_type=BetRecommendation,
+    retries=3,
 )
 
 
@@ -138,7 +153,7 @@ async def analyze_game_market(
     """
     prompt = build_game_prompt(game, bet_type, side)
     result = await ev_agent.run(prompt)
-    return result.data
+    return result.output
 
 
 async def analyze_full_slate(games: list[Game]) -> DailySlate:
