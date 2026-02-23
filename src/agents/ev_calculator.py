@@ -1,0 +1,175 @@
+"""
+Phase 1 - Week 2 & 3: EV Calculator Agent
+Uses Chain-of-Thought (CoT) prompting via PydanticAI to:
+  1. Reason through team stats and matchup context
+  2. Estimate a win probability
+  3. Compare it against the sportsbook implied probability
+  4. Output a structured BetRecommendation
+"""
+import os
+from typing import Optional
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIModel
+from dotenv import load_dotenv
+
+from src.models.schemas import (
+    Game, EVAnalysis, BetRecommendation, BetType, BetSide, DailySlate
+)
+
+load_dotenv()
+
+# --- System Prompt (Week 2: Reasoning as Logic) ---
+SYSTEM_PROMPT = """
+You are Hoops Edge, an elite quantitative sports betting analyst specializing 
+in NCAA college basketball (+EV identification).
+
+Your job is to analyze a college basketball game and identify whether any betting 
+market offers POSITIVE EXPECTED VALUE (+EV) on FanDuel.
+
+## Reasoning Protocol (Chain-of-Thought)
+You MUST reason step-by-step. For each market (spread, moneyline, total) you evaluate:
+
+STEP 1 — Team Context: Summarize each team's offensive/defensive efficiency, pace, 
+         recent form, and relevant injuries.
+STEP 2 — Matchup Analysis: Identify key stylistic advantages (e.g., "Team A's 
+         elite 3-point defense smothers Team B's pace-and-space offense").
+STEP 3 — Probability Estimation: State your estimated win probability for each 
+         side, with explicit justification.
+STEP 4 — EV Calculation: EV = (your_prob * decimal_odds) - 1
+         If EV > 0.03 (3%) → flag as a potential bet.
+STEP 5 — Confidence Check: Rate your confidence (0.0–1.0). If confidence < 0.55, 
+         reduce unit size. Never recommend a bet with confidence < 0.50.
+
+## Unit Sizing (Kelly Criterion, quarter-Kelly)
+units = (edge / (decimal_odds - 1)) * 0.25
+Cap maximum units at 3.0 per bet. Never recommend a parlay of more than 3 legs.
+
+## Output Rules
+- You MUST output a structured BetRecommendation for every market you evaluate.
+- is_recommended = True ONLY if EV > 0.03 AND confidence >= 0.55
+- reasoning_steps must contain at least 3 distinct steps.
+- summary must be ≤ 25 words and state the core reason plainly.
+"""
+
+# Initialize agent with structured output type
+model = OpenAIModel(
+    model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+)
+
+ev_agent = Agent(
+    model=model,
+    system_prompt=SYSTEM_PROMPT,
+    result_type=BetRecommendation,
+)
+
+
+def build_game_prompt(game: Game, bet_type: BetType, side: BetSide) -> str:
+    """Build the user message for the agent to analyze a specific market."""
+    
+    # Get relevant odds
+    odds = None
+    if bet_type == BetType.SPREAD and side == BetSide.HOME:
+        odds = game.home_odds
+    elif bet_type == BetType.SPREAD and side == BetSide.AWAY:
+        odds = game.away_odds
+    elif bet_type == BetType.TOTAL and side == BetSide.OVER:
+        odds = game.total_over_odds
+    elif bet_type == BetType.TOTAL and side == BetSide.UNDER:
+        odds = game.total_under_odds
+
+    if odds is None:
+        raise ValueError(f"No odds found for {bet_type} / {side}")
+
+    # Build home stats block
+    home_block = "No stats available."
+    if game.home_stats:
+        s = game.home_stats
+        home_block = (
+            f"Record: {s.record} | Off Eff: {s.offensive_efficiency} | "
+            f"Def Eff: {s.defensive_efficiency} | Pace: {s.pace} | "
+            f"3PT Rate: {s.three_point_rate} | ATS: {s.ats_record}"
+        )
+
+    away_block = "No stats available."
+    if game.away_stats:
+        s = game.away_stats
+        away_block = (
+            f"Record: {s.record} | Off Eff: {s.offensive_efficiency} | "
+            f"Def Eff: {s.defensive_efficiency} | Pace: {s.pace} | "
+            f"3PT Rate: {s.three_point_rate} | ATS: {s.ats_record}"
+        )
+
+    return f"""
+## Game: {game.away_team} @ {game.home_team}
+Game Time: {game.game_time.strftime('%A %b %d, %Y %I:%M %p')}
+Game ID: {game.game_id}
+
+## Market to Evaluate
+Type: {bet_type.value.upper()}
+Side: {side.value.upper()}
+Line: {odds.line if odds.line else 'N/A'}
+American Odds (FanDuel): {odds.american_odds}
+Implied Probability: {odds.implied_probability:.1%}
+
+## Team Stats
+{game.home_team} (HOME):
+{home_block}
+
+{game.away_team} (AWAY):
+{away_block}
+
+## Injury / News Context
+{game.injury_notes or 'No significant injury news available.'}
+
+---
+Analyze this market. Follow the 5-step reasoning protocol. 
+Output a BetRecommendation.
+"""
+
+
+async def analyze_game_market(
+    game: Game,
+    bet_type: BetType,
+    side: BetSide,
+) -> BetRecommendation:
+    """
+    Run the EV agent for one specific market of a game.
+    Returns a BetRecommendation with embedded CoT reasoning.
+    """
+    prompt = build_game_prompt(game, bet_type, side)
+    result = await ev_agent.run(prompt)
+    return result.data
+
+
+async def analyze_full_slate(games: list[Game]) -> DailySlate:
+    """
+    Analyze all games in today's slate across key markets.
+    Returns a DailySlate with all recommendations.
+    """
+    from datetime import date
+    all_recs: list[BetRecommendation] = []
+
+    # Markets to check per game: home spread, away spread, total over/under
+    markets = [
+        (BetType.SPREAD, BetSide.HOME),
+        (BetType.SPREAD, BetSide.AWAY),
+        (BetType.TOTAL, BetSide.OVER),
+        (BetType.TOTAL, BetSide.UNDER),
+    ]
+
+    for game in games:
+        for bet_type, side in markets:
+            try:
+                rec = await analyze_game_market(game, bet_type, side)
+                all_recs.append(rec)
+            except Exception as e:
+                print(f"[Warning] Skipped {game.game_id} {bet_type}/{side}: {e}")
+
+    total_units = sum(r.recommended_units for r in all_recs if r.is_recommended)
+
+    return DailySlate(
+        date=date.today().isoformat(),
+        games_analyzed=len(games),
+        bets=all_recs,
+        total_units_at_risk=total_units,
+    )

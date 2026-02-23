@@ -1,0 +1,153 @@
+"""
+Phase 1 - Week 3: PydanticAI Schemas
+Strictly typed data models for the Hoops Edge CBB betting agent.
+"""
+from __future__ import annotations
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional, List
+from enum import Enum
+from datetime import datetime
+
+
+class BetType(str, Enum):
+    SPREAD = "spread"
+    MONEYLINE = "moneyline"
+    TOTAL = "total"
+    PLAYER_PROP = "player_prop"
+
+
+class BetSide(str, Enum):
+    HOME = "home"
+    AWAY = "away"
+    OVER = "over"
+    UNDER = "under"
+
+
+class TeamStats(BaseModel):
+    """Historical performance stats for a team (stored in DB for Week 4)."""
+    team_name: str
+    team_id: str  # e.g., ESPN or KenPom ID
+    record: str = Field(..., description="e.g. '15-5'")
+    offensive_efficiency: Optional[float] = Field(None, description="Points per 100 possessions")
+    defensive_efficiency: Optional[float] = Field(None, description="Points allowed per 100 possessions")
+    pace: Optional[float] = Field(None, description="Possessions per 40 minutes")
+    three_point_rate: Optional[float] = Field(None, description="3PA / FGA ratio")
+    ats_record: Optional[str] = Field(None, description="Against the spread record, e.g. '12-8'")
+    conference: Optional[str] = None
+    last_updated: Optional[datetime] = None
+
+
+class Odds(BaseModel):
+    """Represents a single side/market line from a sportsbook."""
+    sportsbook: str = Field(default="fanduel", description="The sportsbook offering the line")
+    bet_type: BetType
+    side: BetSide
+    line: Optional[float] = Field(None, description="Spread or total line, e.g. -3.5 or 142.5")
+    american_odds: int = Field(..., description="American odds, e.g. -110, +145")
+
+    @property
+    def implied_probability(self) -> float:
+        """Convert American odds to implied probability (no-vig approximation)."""
+        if self.american_odds < 0:
+            return abs(self.american_odds) / (abs(self.american_odds) + 100)
+        else:
+            return 100 / (self.american_odds + 100)
+
+    @property
+    def decimal_odds(self) -> float:
+        """Convert American odds to decimal format."""
+        if self.american_odds < 0:
+            return 1 + (100 / abs(self.american_odds))
+        else:
+            return 1 + (self.american_odds / 100)
+
+
+class Game(BaseModel):
+    """Represents a scheduled CBB game with both sides' lines."""
+    game_id: str
+    home_team: str
+    away_team: str
+    game_time: datetime
+    home_odds: Optional[Odds] = None
+    away_odds: Optional[Odds] = None
+    total_over_odds: Optional[Odds] = None
+    total_under_odds: Optional[Odds] = None
+    home_stats: Optional[TeamStats] = None
+    away_stats: Optional[TeamStats] = None
+    injury_notes: Optional[str] = Field(None, description="Plain-text summary of relevant injuries")
+
+
+class EVAnalysis(BaseModel):
+    """
+    Intermediate reasoning output from the EV Calculator agent.
+    Week 2: This is the Chain-of-Thought artifact.
+    """
+    bet_type: BetType
+    side: BetSide
+    reasoning_steps: List[str] = Field(
+        ...,
+        description="Step-by-step CoT reasoning for the probability estimate"
+    )
+    projected_win_probability: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Agent's estimated win probability for this side (0.0-1.0)"
+    )
+    implied_probability: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Sportsbook's implied probability derived from the odds"
+    )
+    expected_value: float = Field(
+        ...,
+        description="EV = (proj_prob * decimal_odds) - 1. Positive = +EV"
+    )
+    confidence: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Agent's confidence in its own probability estimate (0.0-1.0)"
+    )
+
+
+class BetRecommendation(BaseModel):
+    """
+    Final structured output from the agent.
+    Week 3: This is what gets written to the DB and shown in the UI.
+    """
+    game_id: str
+    home_team: str
+    away_team: str
+    game_time: datetime
+    bet_type: BetType
+    side: BetSide
+    line: Optional[float] = None
+    american_odds: int
+    ev_analysis: EVAnalysis
+    recommended_units: float = Field(
+        ..., ge=0.0, le=5.0,
+        description="Kelly-fraction adjusted stake in units (max 5u)"
+    )
+    is_recommended: bool = Field(
+        ...,
+        description="True if EV > threshold AND confidence is sufficient"
+    )
+    summary: str = Field(
+        ...,
+        description="One-sentence human-readable rationale for the bet"
+    )
+
+    @model_validator(mode="after")
+    def cap_units_on_low_ev(self) -> BetRecommendation:
+        """Safety: never recommend more than 1u on sub-2% EV."""
+        if self.ev_analysis.expected_value < 0.02:
+            self.recommended_units = min(self.recommended_units, 1.0)
+        return self
+
+
+class DailySlate(BaseModel):
+    """Container for all recommendations on a given day."""
+    date: str  # YYYY-MM-DD
+    games_analyzed: int
+    bets: List[BetRecommendation]
+    total_units_at_risk: float
+
+    @property
+    def positive_ev_bets(self) -> List[BetRecommendation]:
+        return [b for b in self.bets if b.is_recommended]

@@ -1,0 +1,22 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# Data (don't commit local DB or vectors)
+data/hoops_edge.db
+data/lancedb/
+
+# Pytest
+.pytest_cache/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store

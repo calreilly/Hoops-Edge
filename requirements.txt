@@ -1,0 +1,7 @@
+pydantic-ai
+openai
+lancedb
+sqlite-utils
+sentence-transformers
+python-dotenv
+anthropic
