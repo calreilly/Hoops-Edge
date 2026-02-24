@@ -230,6 +230,120 @@ html, body, [class*="css"] {{
 
 /* ── Divider ── */
 hr {{ border-color: {COLORS["border"]} !important; }}
+
+/* ══ 90s ARCADE HOME ══ */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+.arcade-hero {{
+    position: relative;
+    background: #000;
+    border: 4px solid #f97316;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    overflow: hidden;
+    box-shadow: 0 0 60px rgba(249,115,22,.35), 0 0 120px rgba(249,115,22,.15), inset 0 0 60px rgba(0,0,0,.8);
+}}
+.arcade-hero::before {{
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.12) 3px,rgba(0,0,0,.12) 4px);
+    pointer-events: none;
+    z-index: 10;
+}}
+.arcade-inner {{
+    padding: 2.5rem 2rem 2rem;
+    background: radial-gradient(ellipse at 50% 0%,rgba(249,115,22,.12) 0%,transparent 60%),
+                radial-gradient(ellipse at 50% 100%,rgba(251,191,36,.06) 0%,transparent 55%), #050a12;
+}}
+.arcade-title {{
+    font-family: 'Press Start 2P', monospace !important;
+    font-size: 2rem;
+    color: #f97316;
+    text-shadow: 0 0 10px #f97316, 0 0 30px rgba(249,115,22,.7), 0 0 60px rgba(249,115,22,.4), 4px 4px 0 #7a3910;
+    text-align: center;
+    margin: 0 0 .6rem;
+    letter-spacing: 4px;
+    animation: flicker 6s ease-in-out infinite;
+}}
+@keyframes flicker {{
+    0%,19%,21%,23%,25%,54%,56%,100% {{ opacity: 1; }}
+    20%,22%,24%,55% {{ opacity: .85; }}
+}}
+.arcade-sub {{
+    font-family: 'Press Start 2P', monospace !important;
+    font-size: .5rem;
+    color: #fbbf24;
+    text-align: center;
+    letter-spacing: 2px;
+    text-shadow: 0 0 8px rgba(251,191,36,.6);
+    margin-bottom: 1.4rem;
+}}
+.blink {{ animation: blink 1.1s step-start infinite; }}
+@keyframes blink {{ 50% {{ opacity: 0; }} }}
+.highscore-row {{
+    font-family: 'Press Start 2P', monospace !important;
+    font-size: .45rem;
+    color: #fbbf24;
+    text-align: center;
+    letter-spacing: 2px;
+    text-shadow: 0 0 6px rgba(251,191,36,.5);
+    margin-top: .3rem;
+}}
+.pixel-stat {{
+    background: #000;
+    border: 2px solid #f97316;
+    border-radius: 4px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 0 14px rgba(249,115,22,.25), inset 0 0 20px rgba(0,0,0,.6);
+    position: relative;
+    overflow: hidden;
+}}
+.pixel-stat::after {{
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg,transparent,rgba(249,115,22,.8),transparent);
+    animation: scan 2.5s linear infinite;
+}}
+@keyframes scan {{ 0% {{ transform:translateY(0); }} 100% {{ transform:translateY(60px); }} }}
+.pixel-stat .ps-val {{
+    font-family: 'Press Start 2P', monospace;
+    font-size: 1.15rem;
+    color: #f97316;
+    text-shadow: 0 0 8px #f97316;
+    margin-bottom: .5rem;
+}}
+.pixel-stat .ps-lbl {{
+    font-family: 'Press Start 2P', monospace;
+    font-size: .42rem;
+    color: #6b7280;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}}
+.arcade-btn-card {{
+    background: #000;
+    border: 2px solid #1e3a5f;
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: .5rem;
+    transition: border-color .15s, box-shadow .15s;
+}}
+.arcade-btn-card:hover {{
+    border-color: #f97316;
+    box-shadow: 0 0 18px rgba(249,115,22,.3);
+}}
+.arcade-btn-icon {{ font-size: 1.5rem; margin-bottom: .4rem; }}
+.arcade-btn-title {{
+    font-family: 'Press Start 2P', monospace;
+    font-size: .52rem;
+    color: #f97316;
+    letter-spacing: 1px;
+    margin-bottom: .35rem;
+}}
+.arcade-btn-desc {{ font-size: .78rem; color: #6b7280; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -345,67 +459,64 @@ if st.session_state.page == "home":
     today = datetime.now().strftime("%A, %B %d %Y")
     pending_bets = list(ledger.db["bets"].rows_where("status IN ('pending','approved')", []))
     ev_bets = [b for b in pending_bets if b["status"] == "approved"]
+    pl_sign = "+" if total_pl >= 0 else ""
 
+    # ── 90s ARCADE HERO ──────────────────────────────────────────────
     st.markdown(f"""
-<div class="hero">
-  <h1>🏀 Hoops Edge</h1>
-  <p>AI-Powered College Basketball Edge Detection</p>
-  <p style="color:#4b5563;font-size:0.85rem;margin-top:0.8rem">{today}</p>
+<div class="arcade-hero">
+  <div class="arcade-inner">
+    <div class="arcade-title">🎖️ HOOPS EDGE 🎖️</div>
+    <div class="arcade-sub">INSERT COIN TO CONTINUE <span class="blink">▮</span></div>
+    <div class="highscore-row">-- AI POWERED COLLEGE BASKETBALL EDGE DETECTION --</div>
+    <div class="highscore-row" style="margin-top:.5rem;font-size:.4rem;color:#4b5563">{today.upper()}</div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
+    # ── PIXEL STAT TILES ───────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(f"""<div class="stat-tile">
-          <div class="val">{bankroll['balance_units']:.0f}u</div>
-          <div class="lbl">Bankroll</div></div>""", unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"""<div class="stat-tile">
-          <div class="val">{wins}–{losses}</div>
-          <div class="lbl">Record</div></div>""", unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"""<div class="stat-tile">
-          <div class="val">{len(pending_bets)}</div>
-          <div class="lbl">Pending Bets</div></div>""", unsafe_allow_html=True)
-    with c4:
-        pl_sign = "+" if total_pl >= 0 else ""
-        st.markdown(f"""<div class="stat-tile">
-          <div class="val" style="color:{'#22c55e' if total_pl >= 0 else '#ef4444'}">{pl_sign}{total_pl:.1f}u</div>
-          <div class="lbl">All-time P/L</div></div>""", unsafe_allow_html=True)
+    pv_color = "#22c55e" if total_pl >= 0 else "#ef4444"
+    tiles = [
+        (c1, f"{bankroll['balance_units']:.0f}u",  "BANKROLL",  "#f97316"),
+        (c2, f"{wins}–{losses}",                    "RECORD",    "#fbbf24"),
+        (c3, str(len(pending_bets)),                "PENDING",   "#60a5fa"),
+        (c4, f"{pl_sign}{total_pl:.1f}u",           "P / L",     pv_color),
+    ]
+    for col, val, lbl, col_hex in tiles:
+        with col:
+            st.markdown(f"""
+<div class="pixel-stat">
+  <div class="ps-val" style="color:{col_hex};text-shadow:0 0 8px {col_hex}">{val}</div>
+  <div class="ps-lbl">{lbl}</div>
+</div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="page-title">Quick Actions</div>', unsafe_allow_html=True)
+
+    # ── PLAYER SELECT (Quick Actions) ─────────────────────────────────
+    st.markdown(
+        '<div style="font-family:\'Press Start 2P\',monospace;font-size:.65rem;'
+        'color:#fbbf24;letter-spacing:2px;text-shadow:0 0 6px rgba(251,191,36,.5);'
+        'margin-bottom:1rem">▶ SELECT YOUR ACTION</div>',
+        unsafe_allow_html=True
+    )
 
     qa1, qa2, qa3 = st.columns(3)
-    with qa1:
-        st.markdown(f"""<div class="glass-card accent">
-          <div style="font-size:1.8rem">📋</div>
-          <div style="font-weight:700;margin:.4rem 0 .2rem">Today's Slate</div>
-          <div style="font-size:.85rem;color:{COLORS['text2']}">Load live FanDuel lines and pick your games</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Open Slate →", key="home_slate"):
-            st.session_state.page = "slate"
-            st.rerun()
-
-    with qa2:
-        st.markdown(f"""<div class="glass-card green">
-          <div style="font-size:1.8rem">⏳</div>
-          <div style="font-weight:700;margin:.4rem 0 .2rem">Pending Bets</div>
-          <div style="font-size:.85rem;color:{COLORS['text2']}">{len(pending_bets)} bet(s) awaiting your action</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Review Bets →", key="home_pending"):
-            st.session_state.page = "pending"
-            st.rerun()
-
-    with qa3:
-        st.markdown(f"""<div class="glass-card gold">
-          <div style="font-size:1.8rem">🔍</div>
-          <div style="font-weight:700;margin:.4rem 0 .2rem">Game Search</div>
-          <div style="font-size:.85rem;color:{COLORS['text2']}">Look up odds for any team or conference</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Search Games →", key="home_search"):
-            st.session_state.page = "search"
-            st.rerun()
+    actions = [
+        (qa1, "home_slate",   "slate",   "📋", "TODAY'S SLATE",   "Load live lines & pick your games", "#f97316"),
+        (qa2, "home_pending", "pending", "⏳", "PENDING BETS",   f"{len(pending_bets)} bet(s) awaiting action", "#22c55e"),
+        (qa3, "home_search",  "search",  "🔍", "GAME SEARCH",    "Look up odds by team or conference", "#60a5fa"),
+    ]
+    for col, key, pg, icon, title, desc, accent in actions:
+        with col:
+            st.markdown(f"""
+<div class="arcade-btn-card" style="border-color:rgba({','.join(str(int(accent.lstrip('#')[i:i+2],16)) for i in (0,2,4))},.25)">
+  <div class="arcade-btn-icon">{icon}</div>
+  <div class="arcade-btn-title" style="color:{accent}">{title}</div>
+  <div class="arcade-btn-desc">{desc}</div>
+</div>""", unsafe_allow_html=True)
+            if st.button(f"▶ {title}", key=key):
+                st.session_state.page = pg
+                st.rerun()
 
     if ev_bets:
         st.markdown("<br>", unsafe_allow_html=True)
