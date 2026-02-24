@@ -138,6 +138,7 @@ async def main():
     parser.add_argument("--approved", action="store_true", help="Show approved bets")
     parser.add_argument("--settled", action="store_true", help="Show settled bets")
     parser.add_argument("--bankroll", action="store_true", help="Show current bankroll & record")
+    parser.add_argument("--seed", action="store_true", help="Seed team stats from data/team_stats.json")
     parser.add_argument("--approve", metavar="BET_ID", help="Approve a pending bet by ID prefix")
     parser.add_argument("--reject", metavar="BET_ID", help="Reject a pending bet by ID prefix")
     parser.add_argument("--settle", nargs=3, metavar=("BET_ID", "RESULT", "PROFIT_LOSS"),
