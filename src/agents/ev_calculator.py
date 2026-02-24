@@ -225,13 +225,37 @@ async def _analyze_game_all_markets(
 async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlate:
     """
     Fully concurrent analysis: all games AND all markets run in parallel.
+    Games are pre-ranked by quality before LLM calls:
+      1. Data richness — prefer games where we have stats for both teams
+      2. Line pricing  — prefer less juice (higher american_odds = user-friendlier)
     max_games caps slate size to control API cost (default: 5 games).
     """
     from datetime import date
 
-    # Cap and sort by tip-off time
-    games = sorted(games, key=lambda g: g.game_time)[:max_games]
-    print(f"  Analyzing {len(games)} games (all markets in parallel)...\n")
+    def _rank_score(game: Game) -> tuple:
+        """Higher = better game to analyze. Returns tuple for lexicographic sort."""
+        # (1) How much team context do we have?
+        stats_score = (1 if game.home_stats else 0) + (1 if game.away_stats else 0)
+
+        # (2) How good is the pricing on the markets we'll analyze?
+        markets = _select_markets(game)
+        pricing_score = 0
+        for bt, side in markets:
+            if bt == BetType.SPREAD:
+                odds_obj = game.away_odds if side == BetSide.AWAY else game.home_odds
+            elif side == BetSide.OVER:
+                odds_obj = game.total_over_odds
+            else:
+                odds_obj = game.total_under_odds
+            if odds_obj:
+                pricing_score += odds_obj.american_odds  # -102 > -115 → better price
+
+        return (stats_score, pricing_score)
+
+    # Rank all games before capping; this selects the most promising N games
+    ranked = sorted(games, key=_rank_score, reverse=True)[:max_games]
+    print(f"  Ranked {len(games)} games → analyzing top {len(ranked)}...\n")
+    games = ranked
 
     # Run ALL game-market combos concurrently
     async def analyze_one(game: Game, bet_type: BetType, side: BetSide):
