@@ -174,11 +174,19 @@ def _apply_live_ranking(
     """
     if stats is None or not live_rankings:
         return stats
+        
+    STOP_WORDS = {"st.", "st", "state", "the", "of", "at", "university", "college",
+                  "a&m", "u", "nc", "pa", "ny", "la"}
+
     name_lower = team_name.lower()
+    name_words = {w for w in name_lower.split() if w not in STOP_WORDS}
+    
     for key, rank in live_rankings.items():
-        overlap = set(key.split()) & set(name_lower.split())
+        key_words = {w for w in key.split() if w not in STOP_WORDS}
+        overlap = key_words & name_words
         if len(overlap) >= 2:
             return stats.model_copy(update={"ranking": rank})
+            
     # Team not found in live poll — clear any stale ranking
     return stats.model_copy(update={"ranking": None})
 

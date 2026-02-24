@@ -678,9 +678,12 @@ elif st.session_state.page == "slate":
         # Persist checked state in session
         if "game_checks" not in st.session_state:
             st.session_state.game_checks = {}
+            
+        selected_ids = [gid for gid, v in st.session_state.game_checks.items() if v]
+        n_sel = len(selected_ids)
 
         # Select All / Clear All row
-        sa_col, ca_col, ranked_col, _ = st.columns([1, 1, 1.5, 4.5])
+        sa_col, ca_col, ranked_col, az_col = st.columns([1, 1, 1.5, 4.5])
         if sa_col.button("☑ Select All"):
             for g in sorted_games:
                 st.session_state.game_checks[g.game_id] = True
@@ -695,6 +698,25 @@ elif st.session_state.page == "slate":
                 if has_rank:
                     st.session_state.game_checks[g.game_id] = True
             st.rerun()
+            
+        if n_sel > 0:
+            if az_col.button(
+                f"▶ Analyze {n_sel} Selected Game{'s' if n_sel != 1 else ''}",
+                type="primary",
+            ):
+                chosen = [id_map[gid] for gid in selected_ids if gid in id_map]
+                with st.spinner(f"🤖 Running EV analysis on {len(chosen)} game(s)..."):
+                    try:
+                        slate = run_async(analyze_full_slate(chosen, max_games=len(chosen)))
+                        st.session_state.slate = slate
+                        st.session_state.slate_error = None
+                        st.session_state.page = "picks"
+                        st.rerun()
+                    except Exception as e:
+                        st.session_state.slate_error = str(e)
+                        st.error(str(e))
+        else:
+            az_col.info("↑ Check the games you want to analyze")
 
         for g in sorted_games:
             # 1. Base team data
@@ -798,24 +820,6 @@ elif st.session_state.page == "slate":
         n_sel = len(selected_ids)
 
         st.markdown("")
-        if n_sel > 0:
-            if st.button(
-                f"▶ Analyze {n_sel} Selected Game{'s' if n_sel != 1 else ''}",
-                type="primary",
-            ):
-                chosen = [id_map[gid] for gid in selected_ids if gid in id_map]
-                with st.spinner(f"🤖 Running EV analysis on {len(chosen)} game(s)..."):
-                    try:
-                        slate = run_async(analyze_full_slate(chosen, max_games=len(chosen)))
-                        st.session_state.slate = slate
-                        st.session_state.slate_error = None
-                        st.session_state.page = "picks"
-                        st.rerun()
-                    except Exception as e:
-                        st.session_state.slate_error = str(e)
-                        st.error(str(e))
-        else:
-            st.info("↑ Check the games you want to analyze")
     else:
         st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2.5rem">
           <div style="font-size:3rem">🏀</div>
