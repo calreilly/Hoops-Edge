@@ -13,11 +13,11 @@ import argparse
 
 from src.agents.ev_calculator import analyze_full_slate
 from src.db.storage import BetLedger
-from src.tools.mock_odds import get_mock_games
+from src.tools.odds_client import get_live_games
 
 
 async def run_slate(ledger: BetLedger, dry_run: bool = False):
-    games = get_mock_games()
+    games = get_live_games(ledger)
     print(f"\n🏀 Analyzing {len(games)} games on today's CBB slate...\n")
     slate = await analyze_full_slate(games)
 

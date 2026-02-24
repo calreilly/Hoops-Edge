@@ -5,3 +5,4 @@ sqlite-utils
 sentence-transformers
 python-dotenv
 anthropic
+requests
