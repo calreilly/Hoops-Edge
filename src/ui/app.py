@@ -639,25 +639,16 @@ elif st.session_state.page == "slate":
             st.rerun()
 
         for g in sorted_games:
-            info = fetch_scoreboard_game_info(g.game_id) if hasattr(g, 'game_id') else {}
-            home_info = info.get("home", {})
-            away_info = info.get("away", {})
-
-            # Fallback team data from DB game object
-            away_name  = away_info.get("name") or g.away_team
-            home_name  = home_info.get("name") or g.home_team
-            away_logo  = away_info.get("logo", "")
-            home_logo  = home_info.get("logo", "")
-            away_rank  = away_info.get("rank") or (g.away_stats.ranking if g.away_stats else None)
-            home_rank  = home_info.get("rank") or (g.home_stats.ranking if g.home_stats else None)
-            away_rec   = away_info.get("record") or (g.away_stats.record if g.away_stats else "")
-            home_rec   = home_info.get("record") or (g.home_stats.record if g.home_stats else "")
-            venue      = info.get("venue", "")
-            spread     = info.get("spread", "")
-            ou         = info.get("ou", "")
+            # 1. Base team data
+            away_name  = g.away_team
+            home_name  = g.home_team
+            away_rank  = g.away_stats.ranking if g.away_stats else None
+            home_rank  = g.home_stats.ranking if g.home_stats else None
+            away_rec   = g.away_stats.record if g.away_stats else ""
+            home_rec   = g.home_stats.record if g.home_stats else ""
             tip        = g.game_time.strftime("%I:%M %p ET")
 
-            # Stat leaders — ESPN box score of last game
+            # 2. Map local team names to ESPN IDs for logos and stat leaders
             away_espn_id = None
             home_espn_id = None
             for name, eid in TEAM_ESPN_IDS.items():
@@ -666,12 +657,15 @@ elif st.session_state.page == "slate":
                 if any(w in g.home_team for w in name.split()[:2]):
                     home_espn_id = eid
 
+            away_logo = logo_url(away_espn_id) if away_espn_id else ""
+            home_logo = logo_url(home_espn_id) if home_espn_id else ""
+
             @st.cache_data(ttl=3600)
             def _get_leaders(espn_id, tname):
                 return fetch_team_stat_leaders(espn_id, tname) if espn_id else {}
 
-            away_leaders = _get_leaders(away_espn_id, g.away_team)
-            home_leaders = _get_leaders(home_espn_id, g.home_team)
+            away_leaders = _get_leaders(away_espn_id, away_name)
+            home_leaders = _get_leaders(home_espn_id, home_name)
 
             def _leader_pills(leaders: dict) -> str:
                 pts = leaders.get('pts', {})
@@ -683,7 +677,7 @@ elif st.session_state.page == "slate":
                     f'<span class="gc-pill"><b>AST</b> {ast.get("name","—")} {ast.get("value","—")}</span>'
                 ) if leaders else '<span class="gc-pill">Stats N/A</span>'
 
-            # Game preview blurb
+            # 3. Game preview blurb
             away_oe = g.away_stats.offensive_efficiency if g.away_stats else None
             home_de = g.home_stats.defensive_efficiency if g.home_stats else None
             away_de = g.away_stats.defensive_efficiency if g.away_stats else None
@@ -710,38 +704,38 @@ elif st.session_state.page == "slate":
                 blurb = (f"Tipping off at {tip} — check back once odds sharpen "
                          f"for a full breakdown.")
 
-            rank_badge  = lambda r: f'<div class="gc-rank">#{r} AP</div>' if r else ""
-            logo_tag    = lambda logo, name: (f'<img src="{logo}" width="60" height="60" '
-                                              f'style="object-fit:contain" alt="{name}">') if logo else (
-                                              f'<div style="width:60px;height:60px;background:#1a2236;border-radius:8px;"></div>')
-            spread_line = f'<div class="gc-spread">📊 {spread}  {ou}</div>' if spread or ou else ""
+            # Flush-left HTML string to prevent Markdown code block bugs
+            rank_badge_a = f'<div class="gc-rank">#{away_rank} AP</div>' if away_rank else ""
+            rank_badge_h = f'<div class="gc-rank">#{home_rank} AP</div>' if home_rank else ""
+            logo_tag_a   = f'<img src="{away_logo}" width="60" height="60" style="object-fit:contain" alt="{away_name}">' if away_logo else f'<div style="width:60px;height:60px;background:#1a2236;border-radius:8px;"></div>'
+            logo_tag_h   = f'<img src="{home_logo}" width="60" height="60" style="object-fit:contain" alt="{home_name}">' if home_logo else f'<div style="width:60px;height:60px;background:#1a2236;border-radius:8px;"></div>'
 
-            st.markdown(f"""
+            html_card = f"""
 <div class="game-card">
-  <div class="gc-team">
-    {logo_tag(away_logo, away_name)}
-    {rank_badge(away_rank)}
-    <div class="gc-tname">{away_name}</div>
-    <div class="gc-rec">{away_rec}</div>
-    <div class="gc-label">AWAY</div>
-    <div class="gc-leaders">{_leader_pills(away_leaders)}</div>
-  </div>
-  <div class="gc-vs">@</div>
-  <div class="gc-team">
-    {logo_tag(home_logo, home_name)}
-    {rank_badge(home_rank)}
-    <div class="gc-tname">{home_name}</div>
-    <div class="gc-rec">{home_rec}</div>
-    <div class="gc-label">HOME</div>
-    <div class="gc-leaders">{_leader_pills(home_leaders)}</div>
-  </div>
-  <div class="gc-mid">
-    <div style="font-size:.75rem;color:#fbbf24;font-weight:800">{tip}</div>
-    {f'<div class="gc-venue">🏟️ {venue}</div>' if venue else ''}
-    {spread_line}
-  </div>
-  <div class="gc-blurb">💬 {blurb}</div>
-</div>""", unsafe_allow_html=True)
+<div class="gc-team">
+{logo_tag_a}
+{rank_badge_a}
+<div class="gc-tname">{away_name}</div>
+<div class="gc-rec">{away_rec}</div>
+<div class="gc-label">AWAY</div>
+<div class="gc-leaders">{_leader_pills(away_leaders)}</div>
+</div>
+<div class="gc-vs">@</div>
+<div class="gc-team">
+{logo_tag_h}
+{rank_badge_h}
+<div class="gc-tname">{home_name}</div>
+<div class="gc-rec">{home_rec}</div>
+<div class="gc-label">HOME</div>
+<div class="gc-leaders">{_leader_pills(home_leaders)}</div>
+</div>
+<div class="gc-mid">
+<div style="font-size:.75rem;color:#fbbf24;font-weight:800">{tip}</div>
+</div>
+<div class="gc-blurb">💬 {blurb}</div>
+</div>
+"""
+            st.markdown(html_card, unsafe_allow_html=True)
 
             checked = st.session_state.game_checks.get(g.game_id, False)
             new_val = st.checkbox(f"Select {away_name} vs {home_name}", value=checked, key=f"chk_{g.game_id}")
