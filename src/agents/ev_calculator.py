@@ -166,16 +166,48 @@ async def analyze_game_market(
     return rec
 
 
+def _select_markets(game: Game) -> list[tuple[BetType, BetSide]]:
+    """
+    Select ONE side per market to analyze — the side with better American odds
+    (less juice = more value). This prevents the LLM from analyzing both sides
+    independently and producing contradictory probability estimates.
+
+    Logic:
+      - Spread: pick whichever side (home or away) has the higher American odds
+      - Total: pick whichever side (over or under) has the higher American odds
+    """
+    markets = []
+
+    # Spread: pick the less-juiced side
+    if game.home_odds and game.away_odds:
+        if game.away_odds.american_odds >= game.home_odds.american_odds:
+            markets.append((BetType.SPREAD, BetSide.AWAY))
+        else:
+            markets.append((BetType.SPREAD, BetSide.HOME))
+    elif game.home_odds:
+        markets.append((BetType.SPREAD, BetSide.HOME))
+    elif game.away_odds:
+        markets.append((BetType.SPREAD, BetSide.AWAY))
+
+    # Total: pick the less-juiced side
+    if game.total_over_odds and game.total_under_odds:
+        if game.total_under_odds.american_odds >= game.total_over_odds.american_odds:
+            markets.append((BetType.TOTAL, BetSide.UNDER))
+        else:
+            markets.append((BetType.TOTAL, BetSide.OVER))
+    elif game.total_over_odds:
+        markets.append((BetType.TOTAL, BetSide.OVER))
+    elif game.total_under_odds:
+        markets.append((BetType.TOTAL, BetSide.UNDER))
+
+    return markets
+
+
 async def _analyze_game_all_markets(
     game: Game,
 ) -> list[BetRecommendation]:
-    """Run all 4 markets for a single game concurrently."""
-    markets = [
-        (BetType.SPREAD, BetSide.HOME),
-        (BetType.SPREAD, BetSide.AWAY),
-        (BetType.TOTAL, BetSide.OVER),
-        (BetType.TOTAL, BetSide.UNDER),
-    ]
+    """Analyze the best side of each market for a game concurrently."""
+    markets = _select_markets(game)
 
     async def safe_analyze(bet_type: BetType, side: BetSide):
         try:
@@ -187,6 +219,7 @@ async def _analyze_game_all_markets(
 
     results = await asyncio.gather(*[safe_analyze(bt, s) for bt, s in markets])
     return [r for r in results if r is not None]
+
 
 
 async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlate:
