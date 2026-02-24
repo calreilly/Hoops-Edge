@@ -897,16 +897,23 @@ elif st.session_state.page == "picks":
                         st.warning("Skipped")
                     else:
                         p_col, s_col = st.columns(2)
-                        if p_col.button(
-                            "📌 Place",
-                            key=f"place_{bet_key}",
-                            type="primary",
-                            use_container_width=True,
-                        ):
-                            bid = ledger.save_recommendation(rec)
-                            ledger.approve_bet(bid)
-                            st.session_state.placed_bets.add(bet_key)
-                            st.rerun()
+                        with p_col.popover("📌 Place", use_container_width=True):
+                            st.markdown("**Confirm Unit Sizing:**")
+                            actual_units = st.number_input(
+                                "Units",
+                                value=float(round(rec.recommended_units, 2)),
+                                step=0.1,
+                                format="%.2f",
+                                key=f"units_{bet_key}",
+                                label_visibility="collapsed"
+                            )
+                            if st.button("Confirm Bet", type="primary", key=f"confirm_{bet_key}", use_container_width=True):
+                                rec.recommended_units = actual_units
+                                bid = ledger.save_recommendation(rec)
+                                ledger.approve_bet(bid)
+                                st.session_state.placed_bets.add(bet_key)
+                                st.rerun()
+
                         if s_col.button(
                             "✖ Skip",
                             key=f"skip_{bet_key}",
@@ -1128,7 +1135,7 @@ elif st.session_state.page == "search":
                                  if g.home_ml and g.away_ml else "")
                         conf  = f" · {g.home_stats.conference}" if (g.home_stats and g.home_stats.conference) else ""
                         blurb = generate_matchup_bullets(g, tip)
-                        card = f"""<div class="glass-card accent" style="margin:.5rem 0">
+                        card = f"""<div class="glass-card accent" style="margin:.5rem 0;margin-bottom:0">
 <div style="font-weight:800;font-size:1rem">{g.away_team} <span style="color:{COLORS['muted']}">@</span> {g.home_team}
 <span style="font-size:.75rem;color:{COLORS['muted']};font-weight:400;margin-left:8px">{tip}{conf}</span></div>
 <div style="font-size:.85rem;color:{COLORS['text2']};margin-top:.4rem">📊 {sp}</div>
@@ -1139,6 +1146,18 @@ elif st.session_state.page == "search":
 </div>
 </div>"""
                         st.markdown(card, unsafe_allow_html=True)
+                        if st.button(f"🔍 Analyze {g.away_team} @ {g.home_team}", key=f"analyze_{g.game_id}", use_container_width=True):
+                            with st.spinner("🤖 Running EV analysis on this game..."):
+                                try:
+                                    # run_async is defined globally in app.py
+                                    slate = run_async(analyze_full_slate([g], max_games=1))
+                                    st.session_state.slate = slate
+                                    st.session_state.slate_error = None
+                                    st.session_state.page = "picks"
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(str(e))
+                                    
                         lines.append(f"• {g.away_team} @ {g.home_team} — {sp} | {tot}")
                     st.session_state.search_messages.append({"role":"assistant","content":"\n".join(lines)})
 
