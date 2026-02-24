@@ -7,6 +7,7 @@ Uses Chain-of-Thought (CoT) prompting via PydanticAI to:
   4. Output a structured BetRecommendation
 """
 import os
+import asyncio
 from typing import Optional
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
@@ -165,15 +166,10 @@ async def analyze_game_market(
     return rec
 
 
-async def analyze_full_slate(games: list[Game]) -> DailySlate:
-    """
-    Analyze all games in today's slate across key markets.
-    Returns a DailySlate with all recommendations.
-    """
-    from datetime import date
-    all_recs: list[BetRecommendation] = []
-
-    # Markets to check per game: home spread, away spread, total over/under
+async def _analyze_game_all_markets(
+    game: Game,
+) -> list[BetRecommendation]:
+    """Run all 4 markets for a single game concurrently."""
     markets = [
         (BetType.SPREAD, BetSide.HOME),
         (BetType.SPREAD, BetSide.AWAY),
@@ -181,13 +177,38 @@ async def analyze_full_slate(games: list[Game]) -> DailySlate:
         (BetType.TOTAL, BetSide.UNDER),
     ]
 
-    for game in games:
-        for bet_type, side in markets:
-            try:
-                rec = await analyze_game_market(game, bet_type, side)
-                all_recs.append(rec)
-            except Exception as e:
-                print(f"[Warning] Skipped {game.game_id} {bet_type}/{side}: {e}")
+    async def safe_analyze(bet_type: BetType, side: BetSide):
+        try:
+            return await analyze_game_market(game, bet_type, side)
+        except Exception as e:
+            print(f"  [Warning] Skipped {game.away_team} @ {game.home_team} "
+                  f"{bet_type.value}/{side.value}: {e}")
+            return None
+
+    results = await asyncio.gather(*[safe_analyze(bt, s) for bt, s in markets])
+    return [r for r in results if r is not None]
+
+
+async def analyze_full_slate(games: list[Game], max_games: int = 8) -> DailySlate:
+    """
+    Analyze all games concurrently — all 4 markets per game run in parallel.
+    max_games caps the slate to control cost (default: 8 games).
+    """
+    import asyncio as _asyncio
+    from datetime import date
+
+    # Cap to top N games by tip-off time
+    games = sorted(games, key=lambda g: g.game_time)[:max_games]
+    all_recs: list[BetRecommendation] = []
+
+    print(f"  Analyzing {len(games)} games (4 markets each) concurrently...\n")
+
+    for i, game in enumerate(games, 1):
+        print(f"  [{i}/{len(games)}] {game.away_team} @ {game.home_team}...", end=" ", flush=True)
+        recs = await _analyze_game_all_markets(game)
+        all_recs.extend(recs)
+        recommended = [r for r in recs if r.is_recommended]
+        print(f"✅ {len(recommended)} +EV found" if recommended else "❌ no edge")
 
     total_units = sum(r.recommended_units for r in all_recs if r.is_recommended)
 
@@ -197,3 +218,4 @@ async def analyze_full_slate(games: list[Game]) -> DailySlate:
         bets=all_recs,
         total_units_at_risk=total_units,
     )
+

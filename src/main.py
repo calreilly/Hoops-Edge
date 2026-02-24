@@ -16,10 +16,10 @@ from src.db.storage import BetLedger
 from src.tools.odds_client import get_live_games
 
 
-async def run_slate(ledger: BetLedger, dry_run: bool = False):
+async def run_slate(ledger: BetLedger, dry_run: bool = False, max_games: int = 8):
     games = get_live_games(ledger)
-    print(f"\n🏀 Analyzing {len(games)} games on today's CBB slate...\n")
-    slate = await analyze_full_slate(games)
+    print(f"\n🏀 Analyzing up to {max_games} games on today's CBB slate...\n")
+    slate = await analyze_full_slate(games, max_games=max_games)
 
     print(f"{'─'*60}")
     print(f"  DATE: {slate.date} | GAMES: {slate.games_analyzed}")
@@ -113,6 +113,8 @@ def seed_teams(db_path: str = "data/hoops_edge.db"):
 async def main():
     parser = argparse.ArgumentParser(description="Hoops Edge — CBB +EV Betting Agent")
     parser.add_argument("--slate", action="store_true", help="Analyze today's full slate")
+    parser.add_argument("--max-games", type=int, default=8, metavar="N",
+                        help="Maximum games to analyze (default: 8, controls API cost)")
     parser.add_argument("--dry-run", action="store_true", help="Don't save bets to DB")
     parser.add_argument("--bets", action="store_true", help="Show pending bets")
     parser.add_argument("--approved", action="store_true", help="Show approved bets")
@@ -128,7 +130,7 @@ async def main():
     if args.seed:
         seed_teams()
     elif args.slate:
-        await run_slate(ledger, dry_run=args.dry_run)
+        await run_slate(ledger, dry_run=args.dry_run, max_games=args.max_games)
     elif args.bets:
         show_bets(ledger, "pending")
     elif args.approved:
