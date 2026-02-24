@@ -360,7 +360,9 @@ def get_espn_team_id(team_name: str) -> Optional[int]:
                 t = t_node.get("team", {})
                 tid = int(t.get("id", 0))
                 if tid:
-                    _ALL_TEAMS_CACHE[t.get("displayName", "").lower()] = tid
+                    dn = t.get("displayName", "")
+                    _ALL_TEAMS_DISPLAY_MAP[dn] = tid
+                    _ALL_TEAMS_CACHE[dn.lower()] = tid
                     _ALL_TEAMS_CACHE[t.get("shortDisplayName", "").lower()] = tid
                     _ALL_TEAMS_CACHE[t.get("nickname", "").lower()] = tid
 
@@ -419,6 +421,17 @@ def fetch_game_venue(espn_team_id: Optional[int], opponent_name: str) -> str:
 
 # ── ESPN ID map for our 30 seeded teams ────────────────────────────────────────
 # Used to build the Teams Explorer grid
+TE_ALL_TEAMS_CACHE: dict[str, int] = {}
+_ALL_TEAMS_DISPLAY_MAP: dict[str, int] = {}
+
+def get_all_espn_teams() -> dict[str, int]:
+    """Return a map of Team Display Name -> ESPN ID for all Div 1 teams."""
+    global _ALL_TEAMS_DISPLAY_MAP
+    if not _ALL_TEAMS_DISPLAY_MAP:
+        # Just call this to populate the caches
+        get_espn_team_id("Duke")
+    return _ALL_TEAMS_DISPLAY_MAP
+
 TEAM_ESPN_IDS: dict[str, int] = {
     "Auburn Tigers":             2,
     "Houston Cougars":           248,

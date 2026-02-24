@@ -1033,6 +1033,16 @@ elif st.session_state.page == "history":
     c4.metric("All-time P/L", f"{total_pl:+.2f}u",
               delta_color="normal" if total_pl >= 0 else "inverse")
 
+    with st.expander("⚙️ Bankroll Settings"):
+        with st.form("bankroll_form"):
+            new_bal = st.number_input("Starting/Current Balance (Units)", value=float(bankroll['balance_units']), step=1.0)
+            new_unit = st.number_input("Dollar Value per Unit ($)", value=float(bankroll['unit_dollar_value']), step=5.0)
+            if st.form_submit_button("Update Bankroll"):
+                ledger.db.execute("UPDATE bankroll SET balance_units = ?, unit_dollar_value = ? WHERE id = 1", [new_bal, new_unit])
+                ledger.db.conn.commit()
+                st.success("Bankroll updated!")
+                st.rerun()
+
     st.markdown("")
     st.markdown('<div class="page-title" style="font-size:1.1rem">📜 Settled Bets</div>', unsafe_allow_html=True)
 
@@ -1276,12 +1286,17 @@ elif st.session_state.page == "teams":
                         pos_tag  = p.get("position", "")
                         year_tag = p.get("year", "")
                         jersey   = p.get("jersey", "")
+                        ht_raw   = p.get("height", "")
+                        ht_tag   = inches_to_ft(ht_raw) if ht_raw else ""
+                        if ht_tag:
+                            ht_tag = f" · {ht_tag}"
+                            
                         card_html = f"""
 <div style="background:#1a2236;border:1px solid #1e2d45;border-radius:12px;
             padding:.8rem;margin-bottom:.4rem;text-align:center">
 {f'<img src="{headshot}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;margin-bottom:.3rem">' if headshot else '<div style="width:56px;height:56px;border-radius:50%;background:#2d4a6e;margin:0 auto .3rem;line-height:56px;font-size:1.1rem">👤</div>'}
 <div style="font-weight:700;font-size:.85rem">{p['name']}</div>
-<div style="font-size:.72rem;color:#6b7280">#{jersey} · {pos_tag} · {year_tag}</div>
+<div style="font-size:.72rem;color:#6b7280">#{jersey} · {pos_tag}{ht_tag} · {year_tag}</div>
 </div>"""
                         st.markdown(card_html, unsafe_allow_html=True)
                         with st.expander("Stats & Scouting"):
@@ -1475,13 +1490,16 @@ elif st.session_state.page == "teams":
         if s.get("ranking") and s.get("team_name"):
             db_ranks[s["team_name"]] = s["ranking"]
 
+    # Pull dynamic list of 362 Div 1 teams
+    all_teams_map = get_all_espn_teams()
+
     # Sort: ranked first (by rank), then alphabetical
     def sort_key(item):
         name, _ = item
         rank = db_ranks.get(name)
         return (0, rank) if rank else (1, name)
 
-    sorted_teams = sorted(TEAM_ESPN_IDS.items(), key=sort_key)
+    sorted_teams = sorted(all_teams_map.items(), key=sort_key)
 
     # Filter bar
     search_q = st.text_input("", placeholder="🔍 Search teams...", label_visibility="collapsed")
