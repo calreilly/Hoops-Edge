@@ -16,7 +16,8 @@ from src.tools.odds_client import get_live_games
 from src.agents.ev_calculator import analyze_full_slate
 from src.tools.espn_client import (
     fetch_team_summary, fetch_team_roster, fetch_team_schedule,
-    fetch_boxscore, fetch_player_stats, logo_url, TEAM_ESPN_IDS
+    fetch_best_worst, fetch_boxscore, fetch_player_stats,
+    logo_url, TEAM_ESPN_IDS
 )
 
 # ── Page config ────────────────────────────────────────────────────────────────
@@ -877,8 +878,9 @@ elif st.session_state.page == "teams":
             summary  = fetch_team_summary(espn_id)
             roster   = fetch_team_roster(espn_id)
             schedule = fetch_team_schedule(espn_id)
+        best_wins, worst_losses = fetch_best_worst(schedule, espn_id)
 
-        # Header
+        # ─ Header ────────────────────────────────────────────────────
         h1, h2 = st.columns([1, 4])
         with h1:
             st.image(logo_url(espn_id), width=90)
@@ -887,13 +889,37 @@ elif st.session_state.page == "teams":
             st.markdown(f"## {summary.get('name', team_name)}{rank_str}")
             rec = summary.get("record", "")
             conf = ""
-            # Try DB for conference
-            all_stats = ledger.get_all_team_stats()
-            for s in all_stats:
-                if s.get("team_name", "").lower() in team_name.lower() or team_name.lower() in s.get("team_name", "").lower():
+            for s in ledger.get_all_team_stats():
+                if (s.get("team_name", "").lower() in team_name.lower()
+                        or team_name.lower() in s.get("team_name", "").lower()):
                     conf = s.get("conference", "")
                     break
             st.markdown(f"`{rec}`  {conf}")
+
+            # ─ Best wins (green) + worst losses (red) ──────────────────────
+            chips = []
+            for g in best_wins:
+                chips.append(
+                    f'<span style="background:rgba(34,197,94,.18);color:#22c55e;'
+                    f'border:1px solid rgba(34,197,94,.4);border-radius:20px;'
+                    f'padding:2px 10px;font-size:.75rem;font-weight:600;white-space:nowrap">'
+                    f"✅ W {g['our_score']}–{g['opp_score']} {g.get('opp_name','').split()[-1]}"
+                    f"</span>"
+                )
+            for g in worst_losses:
+                chips.append(
+                    f'<span style="background:rgba(239,68,68,.15);color:#ef4444;'
+                    f'border:1px solid rgba(239,68,68,.35);border-radius:20px;'
+                    f'padding:2px 10px;font-size:.75rem;font-weight:600;white-space:nowrap">'
+                    f"❌ L {g['our_score']}–{g['opp_score']} {g.get('opp_name','').split()[-1]}"
+                    f"</span>"
+                )
+            if chips:
+                st.markdown(
+                    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:.4rem">'
+                    + "".join(chips) + "</div>",
+                    unsafe_allow_html=True,
+                )
 
         st.markdown("---")
         t_roster, t_sched, t_facts = st.tabs(["Roster", "Schedule", "Facts"])

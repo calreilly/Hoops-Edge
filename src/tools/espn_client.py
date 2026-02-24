@@ -77,22 +77,37 @@ def fetch_team_schedule(espn_id: int) -> list[dict]:
     if not d:
         return []
     games = []
+
+    def _score(raw) -> Optional[str]:
+        """Extract display score string from ESPN score field (may be dict or str)."""
+        if raw is None:
+            return None
+        if isinstance(raw, dict):
+            return raw.get("displayValue") or str(int(raw.get("value", 0)))
+        return str(raw)
+
     for ev in d.get("events", []):
         comp = ev.get("competitions", [{}])[0]
         status = comp.get("status", {})
         status_type = status.get("type", {})
         completed = status_type.get("completed", False)
 
-        # Score
         home_score = away_score = None
         home_name = away_name = ""
+        team_is_home = False
         for c in comp.get("competitors", []):
-            if c.get("homeAway") == "home":
-                home_name = c.get("team", {}).get("displayName", "")
-                home_score = c.get("score")
+            is_home = c.get("homeAway") == "home"
+            name = c.get("team", {}).get("displayName", "")
+            score = _score(c.get("score"))
+            if is_home:
+                home_name = name
+                home_score = score
             else:
-                away_name = c.get("team", {}).get("displayName", "")
-                away_score = c.get("score")
+                away_name = name
+                away_score = score
+            # Detect which side is "our" team
+            if c.get("team", {}).get("id") == str(espn_id):
+                team_is_home = is_home
 
         games.append({
             "event_id": ev.get("id"),
@@ -102,10 +117,58 @@ def fetch_team_schedule(espn_id: int) -> list[dict]:
             "away": away_name,
             "home_score": home_score,
             "away_score": away_score,
+            "team_is_home": team_is_home,
             "completed": completed,
             "status": status_type.get("shortDetail", status_type.get("description", "")),
         })
     return games
+
+
+def fetch_best_worst(
+    schedule: list[dict],
+    espn_id: int,
+    n: int = 3,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Given a schedule (from fetch_team_schedule), return:
+      (best_wins, worst_losses) — each a list of up to `n` game dicts
+      enriched with 'margin' and 'result' keys.
+
+    best_wins  = wins sorted by largest margin (most dominant victories)
+    worst_losses = losses sorted by largest margin (most lopsided defeats)
+    """
+    wins: list[dict] = []
+    losses: list[dict] = []
+
+    for g in schedule:
+        if not g.get("completed"):
+            continue
+        hs = g.get("home_score")
+        aws = g.get("away_score")
+        if hs is None or aws is None:
+            continue
+        try:
+            home_pts = int(hs)
+            away_pts = int(aws)
+        except (ValueError, TypeError):
+            continue
+
+        team_is_home = g.get("team_is_home", True)
+        our_score  = home_pts if team_is_home else away_pts
+        opp_score  = away_pts if team_is_home else home_pts
+        opp_name   = g["away"] if team_is_home else g["home"]
+        margin     = our_score - opp_score
+        game_copy  = dict(g, margin=margin, opp_name=opp_name,
+                          our_score=our_score, opp_score=opp_score)
+
+        if margin > 0:
+            wins.append(game_copy)
+        else:
+            losses.append(game_copy)
+
+    best_wins    = sorted(wins,   key=lambda g: -g["margin"])[:n]
+    worst_losses = sorted(losses, key=lambda g:  g["margin"])[:n]   # most negative first
+    return best_wins, worst_losses
 
 
 def fetch_boxscore(event_id: str) -> dict:
