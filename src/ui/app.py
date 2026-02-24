@@ -379,6 +379,13 @@ def card_class(ev: float) -> str:
     if ev >= 0.035: return "glass-card gold"
     return "glass-card red"
 
+def back_btn(dest: str = "home", label: str = "← Home"):
+    """Render a small back-navigation button at the top of any non-home page."""
+    if st.button(label, key=f"back_{dest}_{st.session_state.page}"):
+        st.session_state.page = dest
+        st.rerun()
+    st.markdown("<div style='margin-bottom:.6rem'></div>", unsafe_allow_html=True)
+
 
 ledger = get_ledger()
 init_state({
@@ -534,6 +541,7 @@ if st.session_state.page == "home":
 # PAGE: SLATE
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "slate":
+    back_btn()
     st.markdown('<div class="page-title">📋 Today\'s Slate</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Load live FanDuel lines, check the games you want, then run EV analysis</div>', unsafe_allow_html=True)
 
@@ -645,6 +653,7 @@ elif st.session_state.page == "slate":
 # PAGE: PICKS & ANALYSIS
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "picks":
+    back_btn()
     st.markdown('<div class="page-title">📊 Picks & Analysis</div>', unsafe_allow_html=True)
 
     if st.session_state.slate_error:
@@ -738,9 +747,40 @@ elif st.session_state.page == "picks":
                             st.session_state.skipped_bets.add(bet_key)
                             st.rerun()
 
-                with st.expander("🧠 Reasoning"):
+                # ─ Reasoning expander — color coded by confidence ─
+                ev   = rec.ev_analysis.expected_value
+                conf = rec.ev_analysis.confidence
+                if ev >= 0.05 and conf >= 0.75:
+                    reason_bg  = "rgba(34,197,94,.08)"
+                    reason_bdr = "rgba(34,197,94,.35)"
+                    reason_ico = "🔥 HIGH CONFIDENCE"
+                    reason_col = "#22c55e"
+                elif ev >= 0.035 or conf >= 0.60:
+                    reason_bg  = "rgba(251,191,36,.08)"
+                    reason_bdr = "rgba(251,191,36,.35)"
+                    reason_ico = "⚡ MODERATE"
+                    reason_col = "#fbbf24"
+                else:
+                    reason_bg  = "rgba(239,68,68,.07)"
+                    reason_bdr = "rgba(239,68,68,.3)"
+                    reason_ico = "⚠️ LOW CONFIDENCE"
+                    reason_col = "#ef4444"
+
+                st.markdown(
+                    f'<div style="background:{reason_bg};border:1px solid {reason_bdr};'
+                    f'border-radius:10px;padding:.6rem .9rem;margin:.4rem 0 .2rem;'
+                    f'font-size:.7rem;font-weight:700;color:{reason_col};letter-spacing:.08em">'
+                    f'{reason_ico} · EV {ev:+.1%} · Conf {conf:.0%}</div>',
+                    unsafe_allow_html=True,
+                )
+                with st.expander("🧠 Reasoning", expanded=False):
+                    st.markdown(
+                        f'<div style="background:{reason_bg};border-radius:8px;padding:1rem">',
+                        unsafe_allow_html=True,
+                    )
                     for i, step in enumerate(rec.ev_analysis.reasoning_steps, 1):
                         st.markdown(f"**{i}.** {step}")
+                    st.markdown("</div>", unsafe_allow_html=True)
                     cc = st.columns(4)
                     cc[0].metric("Win Prob", f"{rec.ev_analysis.projected_win_probability:.1%}")
                     cc[1].metric("Implied",  f"{rec.ev_analysis.implied_probability:.1%}")
@@ -754,6 +794,7 @@ elif st.session_state.page == "picks":
 # PAGE: PENDING BETS
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "pending":
+    back_btn()
     st.markdown('<div class="page-title">⏳ Pending Bets</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Manage and settle your active positions</div>', unsafe_allow_html=True)
 
@@ -815,6 +856,7 @@ elif st.session_state.page == "pending":
 # PAGE: PERFORMANCE
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "history":
+    back_btn()
     st.markdown('<div class="page-title">📈 Performance</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Your betting record and bankroll history</div>', unsafe_allow_html=True)
 
@@ -852,6 +894,7 @@ elif st.session_state.page == "history":
 # PAGE: GAME SEARCH
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "search":
+    back_btn()
     st.markdown('<div class="page-title">🔍 Game Search</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Type a team, conference, or keyword — get live FanDuel odds instantly</div>', unsafe_allow_html=True)
 
@@ -1257,6 +1300,7 @@ elif st.session_state.page == "teams":
                 st.info(angle)
 
     # ─ Teams Grid page body ──────────────────────────────────────────────
+    back_btn()
     st.markdown('<div class="page-title">🏀 Teams Explorer</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Click any team to view roster, schedule, and facts powered by ESPN</div>', unsafe_allow_html=True)
 
