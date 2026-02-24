@@ -127,9 +127,9 @@ with st.sidebar:
     st.divider()
 
     # Run controls
-    st.markdown("### Run Slate")
-    max_games = st.slider("Max games to analyze", 1, 10, 3)
-    run_btn = st.button("▶ Analyze Today's Slate", type="primary", use_container_width=True)
+    st.markdown("### Slate Controls")
+    load_btn = st.button("📥 Load Today's Games", use_container_width=True,
+                         help="Fetch full FanDuel NCAAB slate (1 API call, no LLM)")
     dry_run = st.checkbox("Dry run (don't save to DB)", value=False)
     st.divider()
 
@@ -150,29 +150,73 @@ tab_picks, tab_pending, tab_history, tab_search = st.tabs([
 
 # ── TAB 1: Today's Picks ───────────────────────────────────────────────────────
 with tab_picks:
-    if "slate" not in st.session_state:
-        st.session_state.slate = None
-    if "slate_error" not in st.session_state:
-        st.session_state.slate_error = None
+    # Initialise session state
+    for key, val in [("slate", None), ("slate_error", None),
+                     ("all_games", None), ("selected_ids", [])]:
+        if key not in st.session_state:
+            st.session_state[key] = val
 
-    if run_btn:
-        st.session_state.slate = None
-        st.session_state.slate_error = None
-        st.session_state.all_games = None
-        with st.spinner(f"🔄 Fetching live FanDuel odds and analyzing top {max_games} games..."):
+    # ── Step 1: Load games ────────────────────────────────────────────────────
+    if load_btn:
+        with st.spinner("📥 Fetching live FanDuel NCAAB slate..."):
             try:
                 games = get_live_games(ledger)
-                st.session_state.all_games = games  # cache full list for search tab
-                slate = run_async(analyze_full_slate(games, max_games=max_games))
-                st.session_state.slate = slate
+                st.session_state.all_games = games
+                st.session_state.slate = None          # reset previous analysis
+                st.session_state.selected_ids = []     # reset selections
+                st.toast(f"Loaded {len(games)} games from FanDuel!", icon="✅")
             except Exception as e:
-                st.session_state.slate_error = str(e)
+                st.error(f"**Error loading games:** {e}")
 
-    if st.session_state.slate_error:
-        st.error(f"**Error:** {st.session_state.slate_error}")
+    # ── Step 2: Game selection ────────────────────────────────────────────────
+    if st.session_state.all_games:
+        all_games = st.session_state.all_games
+        game_labels = {
+            g.game_id: (
+                f"{g.away_team} @ {g.home_team}  "
+                f"{'⭐ ' if (g.home_stats or g.away_stats) else ''}"  # star = has stats
+                f"({g.game_time.strftime('%I:%M %p ET')})"
+            )
+            for g in all_games
+        }
+        id_to_game = {g.game_id: g for g in all_games}
 
-    elif st.session_state.slate is None:
-        st.info("👈 Click **Analyze Today's Slate** in the sidebar to fetch live FanDuel lines.")
+        st.markdown(f"### 📋 Select Games to Analyze ({len(all_games)} available today)")
+        st.caption("⭐ = team stats available in DB (better analysis quality)")
+
+        selected_ids = st.multiselect(
+            "Pick the games you want to bet on:",
+            options=list(game_labels.keys()),
+            format_func=lambda gid: game_labels[gid],
+            default=st.session_state.selected_ids,
+            placeholder="Choose one or more games...",
+        )
+        st.session_state.selected_ids = selected_ids
+
+        analyze_btn = st.button(
+            f"▶ Analyze {len(selected_ids)} Selected Game{'s' if len(selected_ids) != 1 else ''}",
+            type="primary",
+            disabled=(len(selected_ids) == 0),
+        )
+
+        if analyze_btn and selected_ids:
+            chosen_games = [id_to_game[gid] for gid in selected_ids]
+            st.session_state.slate = None
+            st.session_state.slate_error = None
+            with st.spinner(f"🤖 Running EV analysis on {len(chosen_games)} game(s)..."):
+                try:
+                    from src.agents.ev_calculator import analyze_full_slate
+                    slate = run_async(analyze_full_slate(chosen_games,
+                                                        max_games=len(chosen_games)))
+                    st.session_state.slate = slate
+                except Exception as e:
+                    st.session_state.slate_error = str(e)
+
+        st.divider()
+
+    elif not load_btn:
+        st.info("👈 Click **Load Today's Games** in the sidebar to fetch this evening's FanDuel slate.")
+
 
     else:
         slate = st.session_state.slate
