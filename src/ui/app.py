@@ -21,6 +21,57 @@ from src.tools.espn_client import (
     get_espn_team_id, logo_url, TEAM_ESPN_IDS, get_all_espn_teams
 )
 
+def generate_matchup_bullets(g, tip: str) -> str:
+    """Generate HTML bullet points comparing teams for game preview cards and search results."""
+    away_name = g.away_team
+    home_name = g.home_team
+    away_oe = g.away_stats.offensive_efficiency if g.away_stats else None
+    home_de = g.home_stats.defensive_efficiency if g.home_stats else None
+    away_de = g.away_stats.defensive_efficiency if g.away_stats else None
+    home_oe = g.home_stats.offensive_efficiency if g.home_stats else None
+    
+    bullets = []
+    if away_oe and home_de:
+        bullets.append(f"• <b>{away_name.split()[0]} Offense</b>: OE {away_oe:.0f} vs <b>{home_name.split()[0]} Defense</b>: DE {home_de:.0f}")
+    if home_oe and away_de:
+        bullets.append(f"• <b>{home_name.split()[0]} Offense</b>: OE {home_oe:.0f} vs <b>{away_name.split()[0]} Defense</b>: DE {away_de:.0f}")
+        
+    if g.away_stats and g.home_stats:
+        if g.away_stats.pace and g.home_stats.pace:
+            avg_pace = (g.away_stats.pace + g.home_stats.pace) / 2
+            if avg_pace > 70:
+                bullets.append(f"• <b>Pace</b>: Up-tempo showcase (~{avg_pace:.0f} poss)")
+            elif avg_pace < 66:
+                bullets.append(f"• <b>Pace</b>: Low-scoring grind (~{avg_pace:.0f} poss)")
+        
+        away_ats = g.away_stats.ats_record
+        home_ats = g.home_stats.ats_record
+        if away_ats or home_ats:
+            ats_str = "• <b>Against the Spread</b>: "
+            if away_ats: ats_str += f"{away_name.split()[0]} ({away_ats})"
+            if away_ats and home_ats: ats_str += " | "
+            if home_ats: ats_str += f"{home_name.split()[0]} ({home_ats})"
+            bullets.append(ats_str)
+            
+        away_3pr = g.away_stats.three_point_rate
+        home_3pr = g.home_stats.three_point_rate
+        if away_3pr or home_3pr:
+            thr_str = "• <b>3-Point Reliance</b>: "
+            if away_3pr: 
+                sz = "High" if away_3pr > 0.40 else ("Low" if away_3pr < 0.32 else "Avg")
+                thr_str += f"{away_name.split()[0]} ({sz} {away_3pr*100:.0f}%)"
+            if away_3pr and home_3pr: 
+                thr_str += " | "
+            if home_3pr: 
+                sz = "High" if home_3pr > 0.40 else ("Low" if home_3pr < 0.32 else "Avg")
+                thr_str += f"{home_name.split()[0]} ({sz} {home_3pr*100:.0f}%)"
+            bullets.append(thr_str)
+    
+    if not bullets:
+        bullets.append(f"• Tipping off at {tip} — check back closer to tip for stats.")
+        
+    return "<br>".join(bullets)
+
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Hoops Edge",
@@ -696,55 +747,7 @@ elif st.session_state.page == "slate":
                 ) if leaders else '<span class="gc-pill">Stats N/A</span>'
 
             # 3. Game preview bullet points
-            away_oe = g.away_stats.offensive_efficiency if g.away_stats else None
-            home_de = g.home_stats.defensive_efficiency if g.home_stats else None
-            away_de = g.away_stats.defensive_efficiency if g.away_stats else None
-            home_oe = g.home_stats.offensive_efficiency if g.home_stats else None
-            
-            bullets = []
-            if away_oe and home_de:
-                bullets.append(f"• <b>{away_name.split()[0]} Offense</b>: OE {away_oe:.0f} vs <b>{home_name.split()[0]} Defense</b>: DE {home_de:.0f}")
-            if home_oe and away_de:
-                bullets.append(f"• <b>{home_name.split()[0]} Offense</b>: OE {home_oe:.0f} vs <b>{away_name.split()[0]} Defense</b>: DE {away_de:.0f}")
-                
-            if g.away_stats and g.home_stats:
-                # Pace Matchup
-                if g.away_stats.pace and g.home_stats.pace:
-                    avg_pace = (g.away_stats.pace + g.home_stats.pace) / 2
-                    if avg_pace > 70:
-                        bullets.append(f"• <b>Pace</b>: Up-tempo showcase (~{avg_pace:.0f} poss)")
-                    elif avg_pace < 66:
-                        bullets.append(f"• <b>Pace</b>: Low-scoring grind (~{avg_pace:.0f} poss)")
-                
-                # ATS Records
-                away_ats = g.away_stats.ats_record
-                home_ats = g.home_stats.ats_record
-                if away_ats or home_ats:
-                    ats_str = "• <b>Against the Spread</b>: "
-                    if away_ats: ats_str += f"{away_name.split()[0]} ({away_ats})"
-                    if away_ats and home_ats: ats_str += " | "
-                    if home_ats: ats_str += f"{home_name.split()[0]} ({home_ats})"
-                    bullets.append(ats_str)
-                    
-                # 3-Point Rate
-                away_3pr = g.away_stats.three_point_rate
-                home_3pr = g.home_stats.three_point_rate
-                if away_3pr or home_3pr:
-                    thr_str = "• <b>3-Point Reliance</b>: "
-                    if away_3pr: 
-                        sz = "High" if away_3pr > 0.40 else ("Low" if away_3pr < 0.32 else "Avg")
-                        thr_str += f"{away_name.split()[0]} ({sz} {away_3pr*100:.0f}%)"
-                    if away_3pr and home_3pr: 
-                        thr_str += " | "
-                    if home_3pr: 
-                        sz = "High" if home_3pr > 0.40 else ("Low" if home_3pr < 0.32 else "Avg")
-                        thr_str += f"{home_name.split()[0]} ({sz} {home_3pr*100:.0f}%)"
-                    bullets.append(thr_str)
-            
-            if not bullets:
-                bullets.append(f"• Tipping off at {tip} — check back closer to tip for stats.")
-                
-            blurb_html = "<br>".join(bullets)
+            blurb_html = generate_matchup_bullets(g, tip)
 
             # Flush-left HTML string to prevent Markdown code block bugs
             rank_badge_a = f'<div class="gc-rank">#{away_rank} AP</div>' if away_rank else ""
@@ -1124,12 +1127,16 @@ elif st.session_state.page == "search":
                                  f"{g.away_team} {'%+d' % g.away_ml.american_odds}"
                                  if g.home_ml and g.away_ml else "")
                         conf  = f" · {g.home_stats.conference}" if (g.home_stats and g.home_stats.conference) else ""
+                        blurb = generate_matchup_bullets(g, tip)
                         card = f"""<div class="glass-card accent" style="margin:.5rem 0">
 <div style="font-weight:800;font-size:1rem">{g.away_team} <span style="color:{COLORS['muted']}">@</span> {g.home_team}
 <span style="font-size:.75rem;color:{COLORS['muted']};font-weight:400;margin-left:8px">{tip}{conf}</span></div>
 <div style="font-size:.85rem;color:{COLORS['text2']};margin-top:.4rem">📊 {sp}</div>
 <div style="font-size:.85rem;color:{COLORS['text2']}">🎯 {tot}</div>
 {"<div style='font-size:.85rem;color:"+COLORS['text2']+"'>💰 "+ml+"</div>" if ml else ""}
+<div style="margin-top:.6rem;padding-top:.4rem;border-top:1px dashed {COLORS['border']};font-size:.82rem;line-height:1.5;color:{COLORS['text']}">
+{blurb}
+</div>
 </div>"""
                         st.markdown(card, unsafe_allow_html=True)
                         lines.append(f"• {g.away_team} @ {g.home_team} — {sp} | {tot}")
