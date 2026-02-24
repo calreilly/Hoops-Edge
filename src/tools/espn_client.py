@@ -25,24 +25,35 @@ def logo_url(espn_id: int) -> str:
 
 
 def fetch_team_summary(espn_id: int) -> dict:
-    """Team name, record, logo."""
+    """Team name, record, ranking, conference standing, home/road splits."""
     d = _get(f"{BASE}/teams/{espn_id}")
     if not d:
         return {}
     t = d.get("team", {})
     logos = t.get("logos", [])
-    record_items = t.get("record", {}).get("items", [])
-    record = record_items[0].get("summary", "") if record_items else ""
+
+    # Parse all record splits: total, home, road
+    record_map: dict[str, str] = {}
+    for item in t.get("record", {}).get("items", []):
+        rtype   = item.get("type", "total")
+        summary = item.get("summary", "")
+        if summary:
+            record_map[rtype] = summary
+
     return {
-        "espn_id": espn_id,
-        "name": t.get("displayName", ""),
-        "shortName": t.get("shortDisplayName", ""),
-        "logo": logos[0]["href"] if logos else logo_url(espn_id),
-        "color": t.get("color", "1a2236"),
-        "alternateColor": t.get("alternateColor", "f97316"),
-        "record": record,
-        "location": t.get("location", ""),
-        "nickname": t.get("nickname", ""),
+        "espn_id":       espn_id,
+        "name":          t.get("displayName", ""),
+        "shortName":     t.get("shortDisplayName", ""),
+        "logo":          logos[0]["href"] if logos else logo_url(espn_id),
+        "color":         t.get("color", "1a2236"),
+        "alternateColor":t.get("alternateColor", "f97316"),
+        "record":        record_map.get("total", ""),
+        "home_record":   record_map.get("home", ""),
+        "road_record":   record_map.get("road", ""),
+        "location":      t.get("location", ""),
+        "nickname":      t.get("nickname", ""),
+        "rank":          t.get("rank"),           # AP rank or None
+        "standing":      t.get("standingSummary", ""),  # e.g. "2nd in Big East"
     }
 
 

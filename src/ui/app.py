@@ -885,16 +885,29 @@ elif st.session_state.page == "teams":
         with h1:
             st.image(logo_url(espn_id), width=90)
         with h2:
-            rank_str = f" · **#{db_ranking} AP**" if db_ranking else ""
-            st.markdown(f"## {summary.get('name', team_name)}{rank_str}")
+            # Prefer live ESPN rank over DB ranking
+            espn_rank = summary.get("rank")  # directly from ESPN API
+            effective_rank = espn_rank or db_ranking
+            rank_str = f' · <span style="background:#f97316;color:white;border-radius:20px;padding:2px 9px;font-size:.8rem;font-weight:900">#{effective_rank} AP</span>' if effective_rank else ""
+            st.markdown(
+                f"## {summary.get('name', team_name)}{rank_str}",
+                unsafe_allow_html=True,
+            )
             rec = summary.get("record", "")
-            conf = ""
-            for s in ledger.get_all_team_stats():
-                if (s.get("team_name", "").lower() in team_name.lower()
-                        or team_name.lower() in s.get("team_name", "").lower()):
-                    conf = s.get("conference", "")
-                    break
-            st.markdown(f"`{rec}`  {conf}")
+            home_rec = summary.get("home_record", "")
+            road_rec = summary.get("road_record", "")
+            standing = summary.get("standing", "")
+
+            meta_parts = []
+            if rec:
+                meta_parts.append(f"`{rec}` overall")
+            if home_rec:
+                meta_parts.append(f"`{home_rec}` home")
+            if road_rec:
+                meta_parts.append(f"`{road_rec}` road")
+            st.markdown("  ·  ".join(meta_parts))
+            if standing:
+                st.markdown(f"**🏆 Conference Standing:** {standing}")
 
             # ─ Best wins (green) + worst losses (red) ──────────────────────
             chips = []
@@ -1045,45 +1058,60 @@ elif st.session_state.page == "teams":
                 strengths: list[str] = []
                 weaknesses: list[str] = []
 
-                # Offense (national avg ~105)
-                if oe >= 115:
+                # Offense — tightened for elite pool (avg among ranked teams ~113)
+                if oe >= 117:
                     strengths.append(f"**Elite offense** (OE {oe:.1f}) — one of the country's most efficient attacks; scores against any scheme.")
-                elif oe >= 108:
+                elif oe >= 110:
                     strengths.append(f"**Efficient offense** (OE {oe:.1f}) — generates quality looks and converts at a high rate.")
                 else:
-                    weaknesses.append(f"**Offensive struggles** (OE {oe:.1f}) — below-average efficiency; games often become grind-it-out affairs.")
+                    weaknesses.append(f"**Below-average offense** (OE {oe:.1f}) for a ranked program — opposing defenses can neutralise them on tough nights.")
 
-                # Defense (lower = better, avg ~105)
-                if de <= 95:
+                # Defense — tightened (avg among ranked teams ~99)
+                if de <= 94:
                     strengths.append(f"**Suffocating defense** (DE {de:.1f}) — elite unit; opponents rarely score efficiently. Carries close games.")
-                elif de <= 102:
+                elif de <= 99:
                     strengths.append(f"**Solid defense** (DE {de:.1f}) — limits easy baskets and second chances; above national average.")
+                elif de <= 104:
+                    weaknesses.append(f"**Porous defense** (DE {de:.1f}) — gives up efficient looks; opponents cash in on mistakes.")
                 else:
-                    weaknesses.append(f"**Defensive liability** (DE {de:.1f}) — opponents score at will; team must win shootouts to cover spreads.")
+                    weaknesses.append(f"**Defensive liability** (DE {de:.1f}) — opponents score at will; must win shootouts to cover spreads.")
 
                 # Pace
-                if pace >= 74:
-                    strengths.append(f"**Up-tempo** ({pace:.1f} poss/game) — forces the pace, exploits slow rotations, and condenses game length.")
-                elif pace <= 63:
-                    weaknesses.append(f"**Slow grind** ({pace:.1f} poss/game) — methodical halfcourt team; totals consistently track under.")
+                if pace >= 73:
+                    strengths.append(f"**Up-tempo** ({pace:.1f} poss/game) — forces the pace, exploits slow rotations, and racks up possessions.")
+                elif pace <= 64:
+                    weaknesses.append(f"**Slow grind** ({pace:.1f} poss/game) — methodical halfcourt team; totals consistently track under, tough to watch late.")
                 else:
                     strengths.append(f"**Balanced tempo** ({pace:.1f} poss/game) — flexible; adapts to opponent's preferred pace.")
 
                 # Three-point rate
-                if tpr >= 0.42:
-                    strengths.append(f"**Arc-heavy offense** ({tpr:.0%} 3PT rate) — nearly unguardable on a hot night; high variance, can go cold quickly.")
-                elif tpr >= 0.35:
-                    strengths.append(f"**Perimeter depth** ({tpr:.0%} 3PT rate) — spreads the floor, creates driving lanes, and punishes drop coverage.")
+                if tpr >= 0.40:
+                    strengths.append(f"**Arc-heavy offense** ({tpr:.0%} 3PT rate) — nearly unguardable on a hot night; but high variance when cold.")
+                elif tpr >= 0.34:
+                    strengths.append(f"**Perimeter depth** ({tpr:.0%} 3PT rate) — spreads the floor and creates driving lanes.")
                 else:
-                    weaknesses.append(f"**Limited three-point game** ({tpr:.0%} 3PT rate) — defenses pack the paint; relies on interior scoring and FTs.")
+                    weaknesses.append(f"**Limited perimeter game** ({tpr:.0%} 3PT rate) — defenses pack the paint; relies on interior scoring and FTs.")
 
-                # Net efficiency
+                # Net efficiency → relative strength/weakness
                 if net >= 15:
-                    strengths.append(f"**Dominant net margin (+{net:.1f})** — one of the nation's most complete teams; rarely squanders double-digit leads.")
+                    strengths.append(f"**Dominant net margin (+{net:.1f})** — elite two-way team; rarely squanders double-digit leads.")
                 elif net >= 8:
                     strengths.append(f"**Positive net margin (+{net:.1f})** — consistently out-executes opponents across 40 minutes.")
-                elif net < 0:
-                    weaknesses.append(f"**Negative net margin ({net:.1f})** — gives back more than it earns; often loses leads in the final 5 minutes.")
+                elif net >= 2:
+                    weaknesses.append(f"**Thin margin (+{net:.1f})** — close games go either way; ATS record may be volatile.")
+                else:
+                    weaknesses.append(f"**Negative/flat efficiency margin ({net:+.1f})** — over-ranked by record; often flatters to deceive late.")
+
+                # Relative weakness flag: find the worst category
+                category_scores = {"Offense": oe / 113, "Defense": 99 / de, "3PT Rate": tpr / 0.37}
+                worst_cat = min(category_scores, key=lambda k: category_scores[k])
+                if not any(worst_cat.lower() in w.lower() for w in weaknesses):
+                    if worst_cat == "Offense":
+                        weaknesses.append(f"**Relative weak point — Offense** (OE {oe:.1f}): the lowest-rated facet of this team's game vs. peer programs.")
+                    elif worst_cat == "Defense":
+                        weaknesses.append(f"**Relative weak point — Defense** (DE {de:.1f}): the defensive end is where this team can be exploited.")
+                    else:
+                        weaknesses.append(f"**Relative weak point — Three-point shooting** ({tpr:.0%}): opponents that defend the arc well can stifle this team.")
 
                 if strengths:
                     st.markdown("**✅ Strengths**")
