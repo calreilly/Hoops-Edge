@@ -134,10 +134,21 @@ class BetRecommendation(BaseModel):
     )
 
     @model_validator(mode="after")
-    def cap_units_on_low_ev(self) -> BetRecommendation:
-        """Safety: never recommend more than 1u on sub-2% EV."""
-        if self.ev_analysis.expected_value < 0.02:
-            self.recommended_units = min(self.recommended_units, 1.0)
+    def enforce_quality_thresholds(self) -> BetRecommendation:
+        """
+        Post-processing guardrails applied after Kelly sizing:
+          1. EV threshold — suppress bets below +3.5% EV (within model error margin)
+          2. Unit floor  — suppress bets where Kelly gives < 0.05u (noise bets)
+        """
+        ev = self.ev_analysis.expected_value
+        # (1) EV threshold
+        if ev < 0.035:
+            self.is_recommended = False
+            self.recommended_units = 0.0
+        # (2) Unit floor — even if EV passes, don't bother with micro-stakes
+        if self.recommended_units < 0.05 and self.recommended_units > 0.0:
+            self.is_recommended = False
+            self.recommended_units = 0.0
         return self
 
 

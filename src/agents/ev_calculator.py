@@ -8,6 +8,7 @@ Uses Chain-of-Thought (CoT) prompting via PydanticAI to:
 """
 import os
 import asyncio
+from datetime import datetime
 from typing import Optional
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
@@ -155,7 +156,13 @@ async def analyze_game_market(
     Run the EV agent for one specific market of a game.
     Returns a BetRecommendation with embedded CoT reasoning.
     The recommended_units field is post-processed with hard Kelly math.
+
+    Guard: if neither team has stats, skip LLM and return a no-confidence placeholder
+    rather than letting the agent hallucinate stats.
     """
+    if game.home_stats is None and game.away_stats is None:
+        raise ValueError("No stats available for either team — skipping LLM call")
+
     prompt = build_game_prompt(game, bet_type, side)
     result = await ev_agent.run(prompt)
     rec = result.output
@@ -286,7 +293,7 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlat
     total_units = sum(r.recommended_units for r in all_recs if r.is_recommended)
 
     return DailySlate(
-        date=date.today().isoformat(),
+        date=datetime.now().strftime("%Y-%m-%d"),  # local date, not UTC
         games_analyzed=len(games),
         bets=all_recs,
         total_units_at_risk=total_units,
