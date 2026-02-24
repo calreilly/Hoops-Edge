@@ -345,60 +345,76 @@ def fetch_team_stat_leaders(espn_id: int, team_display_name: str = "") -> dict:
     return {}
 
 
-# ── Rich game card data from the scoreboard ────────────────────────────────────
-def fetch_scoreboard_game_info(espn_event_id: str) -> dict:
+# ── Global Team ID Mapper ───────────────────────────────────────────────────────
+_ALL_TEAMS_CACHE = {}
+
+def get_espn_team_id(team_name: str) -> Optional[int]:
+    """Fetch and cache all 362 Div 1 basketball teams to resolve IDs by name."""
+    global _ALL_TEAMS_CACHE
+    if not _ALL_TEAMS_CACHE:
+        url = f"{BASE}/teams?limit=400"
+        d = _get(url)
+        if d:
+            teams = d.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+            for t_node in teams:
+                t = t_node.get("team", {})
+                tid = int(t.get("id", 0))
+                if tid:
+                    _ALL_TEAMS_CACHE[t.get("displayName", "").lower()] = tid
+                    _ALL_TEAMS_CACHE[t.get("shortDisplayName", "").lower()] = tid
+                    _ALL_TEAMS_CACHE[t.get("nickname", "").lower()] = tid
+
+    # Try exact match, then substring match
+    search = team_name.lower().replace(" state", " st").replace(" st.", " st")
+    for k, v in _ALL_TEAMS_CACHE.items():
+        if search == k or search == k.replace(" state", " st"):
+            return v
+    for k, v in _ALL_TEAMS_CACHE.items():
+        if search in k or k in search:
+            return v
+    return None
+
+
+# ── Venue lookup from team schedule ──────────────────────────────────────────────
+def fetch_game_venue(espn_team_id: Optional[int], opponent_name: str) -> str:
     """
-    Pull logos, rank, record, venue for both teams from the scoreboard event endpoint.
-    Returns a dict with home/away sub-dicts.
+    Search a team's schedule to pull the exact game venue.
     """
-    d = _get(f"{BASE}/summary?event={espn_event_id}")
+    if not espn_team_id:
+        return ""
+    url = f"{BASE}/teams/{espn_team_id}/schedule"
+    d = _get(url)
     if not d:
-        return {}
+        return ""
 
-    header = d.get("header", {})
-    comps = header.get("competitions", [{}])
-    if not comps:
-        return {}
-    comp = comps[0]
+    def _norm(n: str):
+        return n.lower().replace(" state", " st").replace(" st.", " st")
 
-    result: dict = {"home": {}, "away": {}}
-    for c in comp.get("competitors", []):
-        side = c.get("homeAway", "home")
-        team = c.get("team", {})
-        rank = c.get("rank", None) or c.get("curatedRank", {}).get("current", None)
-        # record from header competitor records list
-        records = c.get("records", [])
-        rec = next((r.get("summary", "") for r in records if r.get("name") == "overall"), "")
-        result[side] = {
-            "logo":   team.get("logo", logo_url(int(team.get("id", 0)))),
-            "name":   team.get("displayName", ""),
-            "short":  team.get("shortDisplayName", ""),
-            "color":  "#" + team.get("color", "1a2236"),
-            "rank":   rank if rank and rank <= 25 else None,
-            "record": rec,
-        }
+    target = _norm(opponent_name)
+    
+    for ev in d.get("events", [])[-20:]:
+        c = ev.get("competitions", [{}])[0]
+        comps = c.get("competitors", [])
+        if len(comps) != 2:
+            continue
+        
+        t1 = comps[0].get("team", {}).get("displayName", "").lower()
+        t2 = comps[1].get("team", {}).get("displayName", "").lower()
+        t1_s = comps[0].get("team", {}).get("shortDisplayName", "").lower()
+        t2_s = comps[1].get("team", {}).get("shortDisplayName", "").lower()
 
-    # Venue
-    venue_d = d.get("gameInfo", {}).get("venue", {})
-    result["venue"] = (
-        f"{venue_d.get('fullName', '')} — "
-        f"{venue_d.get('address', {}).get('city', '')}, "
-        f"{venue_d.get('address', {}).get('state', '')}"
-    ).strip(" —, ")
+        if target in t1 or target in t2 or target == t1_s or target == t2_s:
+            venue_d = c.get("venue") or {}
+            v_str = (
+                f"{venue_d.get('fullName', '')} — "
+                f"{venue_d.get('address', {}).get('city', '')}"
+                f"{', ' + venue_d.get('address', {}).get('state', '') if venue_d.get('address', {}).get('state') else ''}"
+            ).replace(" — ", "").strip()
+            if venue_d.get('fullName'):
+                v_str = f"{venue_d.get('fullName')} — {venue_d.get('address',{}).get('city','')}"
+            return v_str.strip(" —")
+    return ""
 
-    # Odds from pickcenter if present
-    pcs = d.get("pickcenter", [])
-    spread_str = ""
-    ou_str = ""
-    if pcs:
-        pc = pcs[0]
-        spread_str = pc.get("details", "")
-        ou = pc.get("overUnder")
-        ou_str = f"O/U {ou:.1f}" if ou else ""
-    result["spread"] = spread_str
-    result["ou"]     = ou_str
-
-    return result
 
 
 # ── ESPN ID map for our 30 seeded teams ────────────────────────────────────────

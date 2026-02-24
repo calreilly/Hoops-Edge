@@ -17,8 +17,8 @@ from src.agents.ev_calculator import analyze_full_slate
 from src.tools.espn_client import (
     fetch_team_summary, fetch_team_roster, fetch_team_schedule,
     fetch_best_worst, fetch_boxscore, fetch_player_stats,
-    fetch_team_stat_leaders, fetch_scoreboard_game_info, inches_to_ft,
-    logo_url, TEAM_ESPN_IDS
+    fetch_team_stat_leaders, fetch_game_venue, inches_to_ft,
+    get_espn_team_id, logo_url, TEAM_ESPN_IDS
 )
 
 # ── Page config ────────────────────────────────────────────────────────────────
@@ -647,15 +647,33 @@ elif st.session_state.page == "slate":
             away_rec   = g.away_stats.record if g.away_stats else ""
             home_rec   = g.home_stats.record if g.home_stats else ""
             tip        = g.game_time.strftime("%I:%M %p ET")
+            yyyymmdd   = g.game_time.strftime("%Y%m%d")
 
             # 2. Map local team names to ESPN IDs for logos and stat leaders
-            away_espn_id = None
-            home_espn_id = None
-            for name, eid in TEAM_ESPN_IDS.items():
-                if any(w in g.away_team for w in name.split()[:2]):
-                    away_espn_id = eid
-                if any(w in g.home_team for w in name.split()[:2]):
-                    home_espn_id = eid
+            away_espn_id = get_espn_team_id(away_name)
+            home_espn_id = get_espn_team_id(home_name)
+            
+            # Fallback to local map if dynamic mapper failed
+            if not away_espn_id:
+                for n, eid in TEAM_ESPN_IDS.items():
+                    if any(w in away_name for w in n.split()[:2]): away_espn_id = eid
+            if not home_espn_id:
+                for n, eid in TEAM_ESPN_IDS.items():
+                    if any(w in home_name for w in n.split()[:2]): home_espn_id = eid
+
+            # Venue is retrieved precisely from the schedule matching
+            venue = fetch_game_venue(home_espn_id, away_name)
+
+            # Live API spreads/totals are already stored in our DailyGame objects!
+            spread = ""
+            if g.home_odds and g.home_odds.line is not None:
+                spread = f"{home_name.split()[0]} {g.home_odds.line:+g}"
+            elif g.away_odds and g.away_odds.line is not None:
+                spread = f"{away_name.split()[0]} {g.away_odds.line:+g}"
+                
+            ou = ""
+            if g.total_over_odds and g.total_over_odds.line is not None:
+                ou = f"O/U {g.total_over_odds.line:g}"
 
             away_logo = logo_url(away_espn_id) if away_espn_id else ""
             home_logo = logo_url(home_espn_id) if home_espn_id else ""
@@ -677,32 +695,29 @@ elif st.session_state.page == "slate":
                     f'<span class="gc-pill"><b>AST</b> {ast.get("name","—")} {ast.get("value","—")}</span>'
                 ) if leaders else '<span class="gc-pill">Stats N/A</span>'
 
-            # 3. Game preview blurb
+            # 3. Game preview bullet points
             away_oe = g.away_stats.offensive_efficiency if g.away_stats else None
             home_de = g.home_stats.defensive_efficiency if g.home_stats else None
             away_de = g.away_stats.defensive_efficiency if g.away_stats else None
             home_oe = g.home_stats.offensive_efficiency if g.home_stats else None
+            
+            bullets = []
             if away_oe and home_de:
-                if away_oe > home_de:
-                    blurb = (f"{g.away_team.split()[0]} brings the firepower (OE {away_oe:.0f}) "
-                             f"to a {g.home_team.split()[0]} defense rated {home_de:.0f}. "
-                             f"Expect an up-tempo offensive showcase.")
-                else:
-                    blurb = (f"{g.home_team.split()[0]}'s stout defense (DE {home_de:.0f}) "
-                             f"should slow {g.away_team.split()[0]}'s attack (OE {away_oe:.0f}). "
-                             f"Look for a low-scoring grind.")
-            elif home_oe and away_de:
-                if home_oe > away_de:
-                    blurb = (f"{g.home_team.split()[0]} (OE {home_oe:.0f}) has a "
-                             f"distinct offensive edge at home. {g.away_team.split()[0]} must "
-                             f"control tempo to stay competitive.")
-                else:
-                    blurb = (f"{g.away_team.split()[0]}'s defense (DE {away_de:.0f}) clamps "
-                             f"{g.home_team.split()[0]}'s attack (OE {home_oe:.0f}). "
-                             f"Points will be at a premium.")
-            else:
-                blurb = (f"Tipping off at {tip} — check back once odds sharpen "
-                         f"for a full breakdown.")
+                bullets.append(f"• <b>{away_name.split()[0]} Offense</b>: OE {away_oe:.0f} vs <b>{home_name.split()[0]} Defense</b>: DE {home_de:.0f}")
+            if home_oe and away_de:
+                bullets.append(f"• <b>{home_name.split()[0]} Offense</b>: OE {home_oe:.0f} vs <b>{away_name.split()[0]} Defense</b>: DE {away_de:.0f}")
+                
+            if g.away_stats and g.home_stats and g.away_stats.pace and g.home_stats.pace:
+                avg_pace = (g.away_stats.pace + g.home_stats.pace) / 2
+                if avg_pace > 70:
+                    bullets.append(f"• <b>Pace</b>: Up-tempo showcase (~{avg_pace:.0f} poss)")
+                elif avg_pace < 66:
+                    bullets.append(f"• <b>Pace</b>: Low-scoring grind (~{avg_pace:.0f} poss)")
+            
+            if not bullets:
+                bullets.append(f"• Tipping off at {tip} — check back closer to tip for stats.")
+                
+            blurb_html = "<br>".join(bullets)
 
             # Flush-left HTML string to prevent Markdown code block bugs
             rank_badge_a = f'<div class="gc-rank">#{away_rank} AP</div>' if away_rank else ""
@@ -732,7 +747,7 @@ elif st.session_state.page == "slate":
 <div class="gc-mid">
 <div style="font-size:.75rem;color:#fbbf24;font-weight:800">{tip}</div>
 </div>
-<div class="gc-blurb">💬 {blurb}</div>
+<div class="gc-blurb">💬 {blurb_html}</div>
 </div>
 """
             st.markdown(html_card, unsafe_allow_html=True)
