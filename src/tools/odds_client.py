@@ -11,6 +11,7 @@ import requests
 from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
+from zoneinfo import ZoneInfo
 
 from src.models.schemas import Game, Odds, BetType, BetSide, TeamStats
 from src.db.storage import BetLedger
@@ -124,18 +125,81 @@ def _lookup_team_stats(team_name: str, ledger: BetLedger) -> Optional[TeamStats]
     return None
 
 
+ET = ZoneInfo("America/New_York")
 
-def parse_odds_response(raw_games: list[dict], ledger: BetLedger) -> list[Game]:
+
+def fetch_live_rankings() -> dict[str, int]:
+    """
+    Fetch the current AP Top 25 poll from ESPN's free public API.
+    Returns {team_display_name_lower: rank}.
+    Falls back to empty dict on any failure — never crashes the caller.
+    """
+    try:
+        resp = requests.get(
+            "https://site.api.espn.com/apis/site/v2/sports/basketball/"
+            "mens-college-basketball/rankings",
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            print(f"  [Rankings] ESPN returned {resp.status_code} — skipping ranking update.")
+            return {}
+        data = resp.json()
+        rankings: dict[str, int] = {}
+        for poll in data.get("rankings", []):
+            if "AP" not in poll.get("name", ""):
+                continue
+            for entry in poll.get("ranks", []):
+                rank = entry.get("current", 0)
+                team = entry.get("team", {})
+                name = team.get("displayName") or team.get("name", "")
+                if name and rank:
+                    rankings[name.lower()] = rank
+        print(f"  [Rankings] {len(rankings)} AP Top 25 teams from ESPN.")
+        return rankings
+    except Exception as e:
+        print(f"  [Rankings] Fetch failed: {e}")
+        return {}
+
+
+def _apply_live_ranking(
+    stats: Optional[TeamStats],
+    team_name: str,
+    live_rankings: dict[str, int],
+) -> Optional[TeamStats]:
+    """
+    Overwrite stats.ranking with the live AP rank if a name match is found.
+    Clears stale ranking if team is no longer ranked.
+    """
+    if stats is None or not live_rankings:
+        return stats
+    name_lower = team_name.lower()
+    for key, rank in live_rankings.items():
+        overlap = set(key.split()) & set(name_lower.split())
+        if len(overlap) >= 2:
+            return stats.model_copy(update={"ranking": rank})
+    # Team not found in live poll — clear any stale ranking
+    return stats.model_copy(update={"ranking": None})
+
+
+
+def parse_odds_response(
+    raw_games: list[dict],
+    ledger: BetLedger,
+    live_rankings: Optional[dict] = None,
+) -> list[Game]:
     """
     Transform The-Odds-API JSON into our Game Pydantic models,
     pulling team stats from the local SQLite DB if available.
+    live_rankings: optional {team_name_lower: rank} from fetch_live_rankings().
     """
     games: list[Game] = []
 
     for raw in raw_games:
         home_team = raw["home_team"]
         away_team = raw["away_team"]
-        game_time = datetime.fromisoformat(raw["commence_time"].replace("Z", "+00:00"))
+        game_time = datetime.fromisoformat(
+            raw["commence_time"].replace("Z", "+00:00")
+        ).astimezone(ET)  # convert UTC → Eastern
         game_id = raw["id"]
 
         # Initialize odds slots
@@ -195,9 +259,13 @@ def parse_odds_response(raw_games: list[dict], ledger: BetLedger) -> list[Game]:
             print(f"  [Odds API] Skipping {away_team} @ {home_team} — no FanDuel lines found")
             continue
 
-        # Look up team stats from our DB
-        home_stats = _lookup_team_stats(home_team, ledger)
-        away_stats = _lookup_team_stats(away_team, ledger)
+        # Look up team stats from our DB, then apply live AP rankings
+        home_stats = _apply_live_ranking(
+            _lookup_team_stats(home_team, ledger), home_team, live_rankings or {}
+        )
+        away_stats = _apply_live_ranking(
+            _lookup_team_stats(away_team, ledger), away_team, live_rankings or {}
+        )
 
         games.append(Game(
             game_id=game_id,
@@ -229,8 +297,11 @@ def get_live_games(ledger: BetLedger) -> list[Game]:
         from src.tools.mock_odds import get_mock_games
         return get_mock_games()
 
+    # Fetch live AP rankings BEFORE parsing odds (zero cost, no auth)
+    live_rankings = fetch_live_rankings()
+
     raw = fetch_fanduel_ncaab_odds()
-    games = parse_odds_response(raw, ledger)
+    games = parse_odds_response(raw, ledger, live_rankings=live_rankings)
 
     if not games:
         print("  ℹ️  No NCAAB games with FanDuel lines today. Using mock data.")
