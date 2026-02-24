@@ -818,25 +818,31 @@ elif st.session_state.page == "search":
 elif st.session_state.page == "teams":
 
     # ─ Inline renderers (no nested dialogs) ──────────────────────────────────────
-    def _render_player(container, player_id: str, player_name: str):
-        """Render player bio + scouting notes into a given container."""
+    def _render_player(container, player_data: dict):
+        """Render player bio + scouting notes into a given container (uses roster dict directly)."""
         with container:
-            with st.spinner(f"Loading {player_name}..."):
-                info = fetch_player_stats(player_id)
+            info = fetch_player_stats(player_data)
             if not info or not info.get("name"):
                 st.caption("Player data unavailable.")
                 return
             c1, c2 = st.columns([1, 3])
             with c1:
                 if info.get("headshot"):
-                    st.image(info["headshot"], width=90)
+                    st.image(info["headshot"], width=100)
             with c2:
                 st.markdown(f"**{info['name']}**")
-                pos = info.get('position', '—')
-                st.caption(
-                    f"{pos}  ·  {info.get('height', '')}  ·  "
-                    f"{info.get('birthPlace') or info.get('college', '')}"
-                )
+                pos  = info.get("position", "")
+                ht   = info.get("height", "")
+                wt   = info.get("weight", "")
+                city = info.get("birthPlace", "")
+                yr   = info.get("year", "")
+                st.caption(f"{pos}  ·  {ht}, {wt} lbs  ·  {yr}  ·  {city}")
+                roster_stats = info.get("stats", {})
+                if roster_stats:
+                    stat_cols = list(roster_stats.items())[:8]
+                    cols = st.columns(len(stat_cols))
+                    for col, (k, v) in zip(cols, stat_cols):
+                        col.metric(k, v)
             traits = {
                 "PG": "🎯 Floor general — playmaking, A/TO ratio, pick-and-roll reads.",
                 "SG": "🎯 Shooting guard — off-ball movement, catch-and-shoot, two-way.",
@@ -844,7 +850,8 @@ elif st.session_state.page == "teams":
                 "PF": "🎯 Power forward — paint presence, screen quality, face-up game.",
                 "C":  "🎯 Center — rim protection, offensive rebounding, P&R defense.",
             }
-            note = traits.get(pos.upper()[:2], "🎯 Versatile player — evaluate holistically.")
+            pos_key = pos.upper()[:2]
+            note = traits.get(pos_key, "🎯 Versatile player — evaluate holistically.")
             st.info(note)
 
     def _render_boxscore(container, event_id: str, game_name: str):
@@ -863,6 +870,7 @@ elif st.session_state.page == "teams":
                 if not players:
                     st.caption("No player data.")
                     continue
+                # labels sit on each player row (same for all players in team)
                 labels = players[0].get("labels", [])
                 rows = []
                 for p in players:
@@ -958,7 +966,7 @@ elif st.session_state.page == "teams":
 </div>"""
                         st.markdown(card_html, unsafe_allow_html=True)
                         with st.expander("Stats & Scouting"):
-                            _render_player(st.container(), str(p["id"]), p["name"])
+                            _render_player(st.container(), p)
 
         # ─ Schedule tab ───────────────────────────────────────────────
         with t_sched:

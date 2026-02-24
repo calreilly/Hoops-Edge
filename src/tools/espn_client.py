@@ -188,61 +188,76 @@ def fetch_boxscore(event_id: str) -> dict:
     if not d:
         return {}
 
+    # Athletes are in boxscore.players[], NOT boxscore.teams[].statistics
     teams_box = []
-    for team_data in d.get("boxscore", {}).get("teams", []):
-        team_name = team_data.get("team", {}).get("displayName", "")
+    for team_entry in d.get("boxscore", {}).get("players", []):
+        team_name = team_entry.get("team", {}).get("displayName", "")
         players_rows = []
-        for cat in team_data.get("statistics", []):
-            if cat.get("name") == "":
-                continue
+        stats_cats = team_entry.get("statistics", [])
+        if stats_cats:
+            cat = stats_cats[0]   # one category with all players
+            labels = cat.get("labels", [])
             for p in cat.get("athletes", []):
+                if p.get("didNotPlay"):
+                    continue
                 athlete = p.get("athlete", {})
+                pos = athlete.get("position", {})
+                pos_abbr = pos.get("abbreviation", "") if isinstance(pos, dict) else ""
                 players_rows.append({
-                    "name": athlete.get("displayName", ""),
-                    "position": athlete.get("position", {}).get("abbreviation", ""),
-                    "stats": [s.get("displayValue", "") for s in p.get("stats", [])],
-                    "labels": [s.get("abbreviation", "") for s in p.get("stats", [])],
+                    "name":     athlete.get("displayName", ""),
+                    "position": pos_abbr,
+                    "stats":    p.get("stats", []),
+                    "labels":   labels,
                 })
-            if players_rows:
-                break  # just first category (usually starters + bench)
-
         teams_box.append({"team": team_name, "players": players_rows})
 
-    header = d.get("header", {})
-    comps = header.get("competitions", [{}])
+    # Result string from header
     result_str = ""
-    if comps:
-        comp = comps[0]
-        for c in comp.get("competitors", []):
-            result_str += f"{c.get('team',{}).get('displayName','')} {c.get('score','')},  "
+    for c in d.get("header", {}).get("competitions", [{}])[0].get("competitors", []):
+        score = c.get("score", "")
+        name  = c.get("team", {}).get("displayName", "")
+        if name and score:
+            result_str += f"{name} {score},  "
 
     return {
         "result": result_str.strip(", "),
-        "teams": teams_box,
-        "headlines": [h.get("shortLinkText", h.get("description",""))
-                      for h in d.get("news", {}).get("articles", [])[:2]],
+        "teams":  teams_box,
     }
 
 
-def fetch_player_stats(player_id: str) -> dict:
-    """Return career/season stats and bio for a player."""
-    d = _get(f"https://site.api.espn.com/apis/site/v2/sports/basketball/"
-             f"mens-college-basketball/athletes/{player_id}")
-    if not d:
+def fetch_player_stats(player_data: dict) -> dict:
+    """
+    Build a player info dict from already-fetched roster data.
+    The individual ESPN athlete endpoint is unauthenticated-blocked,
+    so we use the rich data already returned by the roster endpoint.
+    """
+    if not player_data:
         return {}
-    a = d.get("athlete", d)
-    stats_d = _get(f"https://site.api.espn.com/apis/site/v2/sports/basketball/"
-                   f"mens-college-basketball/athletes/{player_id}/statisticslog")
-    # Simplified — return bio + whatever stats are in summary
+    pos_raw = player_data.get("position", "")
+    if isinstance(pos_raw, dict):
+        position = pos_raw.get("displayName", pos_raw.get("abbreviation", ""))
+    else:
+        position = pos_raw  # already extracted as string by fetch_team_roster
+
+    hs_raw = player_data.get("headshot", "")
+    headshot = hs_raw.get("href", "") if isinstance(hs_raw, dict) else hs_raw
+
+    bp_raw = player_data.get("birthPlace", "")
+    birthplace = bp_raw.get("city", "") if isinstance(bp_raw, dict) else bp_raw
+
+    exp_raw = player_data.get("experience", "")
+    year = exp_raw.get("displayValue", "") if isinstance(exp_raw, dict) else exp_raw
+
     return {
-        "name": a.get("displayName", ""),
-        "position": a.get("position", {}).get("displayName", ""),
-        "headshot": a.get("headshot", {}).get("href", ""),
-        "weight": a.get("weight", ""),
-        "height": a.get("height", ""),
-        "birthPlace": a.get("birthPlace", {}).get("city", ""),
-        "college": a.get("college", {}).get("name", ""),
-        "stats_raw": stats_d or {},
+        "name":       player_data.get("displayName", player_data.get("name", "")),
+        "position":   position,
+        "headshot":   headshot,
+        "height":     player_data.get("displayHeight", player_data.get("height", "")),
+        "weight":     player_data.get("displayWeight", player_data.get("weight", "")),
+        "birthPlace": birthplace,
+        "year":       player_data.get("year", year),
+        "jersey":     player_data.get("jersey", ""),
+        "stats":      player_data.get("stats", {}),
     }
 
 
