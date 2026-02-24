@@ -243,17 +243,10 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlat
                   f"{bet_type.value}/{side.value}: {e}")
             return None
 
-    markets = [
-        (BetType.SPREAD, BetSide.HOME),
-        (BetType.SPREAD, BetSide.AWAY),
-        (BetType.TOTAL, BetSide.OVER),
-        (BetType.TOTAL, BetSide.UNDER),
-    ]
-
     tasks = [
         analyze_one(game, bt, s)
         for game in games
-        for bt, s in markets
+        for bt, s in _select_markets(game)   # 1 spread + 1 total per game only
     ]
 
     results = await asyncio.gather(*tasks)
