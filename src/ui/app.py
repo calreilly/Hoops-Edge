@@ -816,64 +816,60 @@ elif st.session_state.page == "search":
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "teams":
 
-    # ─ Dialogs ────────────────────────────────────────────────────────────────
-    @st.dialog("📊 Player Stats", width="large")
-    def show_player(player_id: str, player_name: str):
-        with st.spinner(f"Loading {player_name}..."):
-            info = fetch_player_stats(player_id)
-        if not info:
-            st.warning("Could not load player data.")
-            return
-        c1, c2 = st.columns([1, 3])
-        with c1:
-            if info.get("headshot"):
-                st.image(info["headshot"], width=120)
-        with c2:
-            st.markdown(f"### {info['name']}")
-            st.markdown(f"""
-| | |
-|---|---|
-| **Position** | {info.get('position','—')} |
-| **Height** | {info.get('height','—')} |
-| **Weight** | {info.get('weight','—')} lbs |
-| **From** | {info.get('birthPlace') or info.get('college','—')} |
-""")
-        # Scouting report based on position
-        pos = info.get("position", "").upper()
-        traits = {
-            "PG": "🎯 Floor general. Look for playmaking, assist-to-turnover ratio, and pick-and-roll reads.",
-            "SG": "🎯 Shooting guard. Evaluate off-ball movement, catch-and-shoot efficiency, and two-way versatility.",
-            "SF": "🎯 Small forward. Assess wing defense, transition scoring, and positional rebounding.",
-            "PF": "🎯 Power forward. Focus on paint presence, screen quality, and mid-range/face-up ability.",
-            "C":  "🎯 Center. Evaluate rim protection, offensive rebounding, and pick-and-roll defense.",
-        }
-        st.markdown("---")
-        st.markdown(f"**Scouting Notes:** {traits.get(pos, 'Versatile player. Evaluate holistically across all facets.')}")
+    # ─ Inline renderers (no nested dialogs) ──────────────────────────────────────
+    def _render_player(container, player_id: str, player_name: str):
+        """Render player bio + scouting notes into a given container."""
+        with container:
+            with st.spinner(f"Loading {player_name}..."):
+                info = fetch_player_stats(player_id)
+            if not info or not info.get("name"):
+                st.caption("Player data unavailable.")
+                return
+            c1, c2 = st.columns([1, 3])
+            with c1:
+                if info.get("headshot"):
+                    st.image(info["headshot"], width=90)
+            with c2:
+                st.markdown(f"**{info['name']}**")
+                pos = info.get('position', '—')
+                st.caption(
+                    f"{pos}  ·  {info.get('height', '')}  ·  "
+                    f"{info.get('birthPlace') or info.get('college', '')}"
+                )
+            traits = {
+                "PG": "🎯 Floor general — playmaking, A/TO ratio, pick-and-roll reads.",
+                "SG": "🎯 Shooting guard — off-ball movement, catch-and-shoot, two-way.",
+                "SF": "🎯 Small forward — wing defense, transition scoring, rebounding.",
+                "PF": "🎯 Power forward — paint presence, screen quality, face-up game.",
+                "C":  "🎯 Center — rim protection, offensive rebounding, P&R defense.",
+            }
+            note = traits.get(pos.upper()[:2], "🎯 Versatile player — evaluate holistically.")
+            st.info(note)
 
-    @st.dialog("📊 Box Score", width="large")
-    def show_boxscore(event_id: str, game_name: str):
-        st.markdown(f"### {game_name}")
-        with st.spinner("Loading box score..."):
-            bs = fetch_boxscore(event_id)
-        if not bs or not bs.get("teams"):
-            st.warning("Box score not available for this game.")
-            return
-        if bs.get("result"):
-            st.markdown(f"**Final:** {bs['result']}")
-        for team in bs["teams"]:
-            st.markdown(f"#### {team['team']}")
-            players = team.get("players", [])
-            if not players:
-                st.caption("No player data available.")
-                continue
-            labels = players[0].get("labels", [])
-            rows = []
-            for p in players:
-                row = {"Player": p["name"], "Pos": p.get("position", "")}
-                for lbl, val in zip(labels, p.get("stats", [])):
-                    row[lbl] = val
-                rows.append(row)
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+    def _render_boxscore(container, event_id: str, game_name: str):
+        """Render a box score table into a given container."""
+        with container:
+            with st.spinner("Loading box score..."):
+                bs = fetch_boxscore(event_id)
+            if not bs or not bs.get("teams"):
+                st.caption("Box score not available.")
+                return
+            if bs.get("result"):
+                st.markdown(f"**Final:** {bs['result']}")
+            for team in bs["teams"]:
+                st.markdown(f"**{team['team']}**")
+                players = team.get("players", [])
+                if not players:
+                    st.caption("No player data.")
+                    continue
+                labels = players[0].get("labels", [])
+                rows = []
+                for p in players:
+                    row = {"Player": p["name"], "Pos": p.get("position", "")}
+                    for lbl, val in zip(labels, p.get("stats", [])):
+                        row[lbl] = val
+                    rows.append(row)
+                st.dataframe(rows, use_container_width=True, hide_index=True)
 
     @st.dialog("🏀 Team Details", width="large")
     def show_team(team_name: str, espn_id: int, db_ranking: Optional[int]):
@@ -911,20 +907,19 @@ elif st.session_state.page == "teams":
                 for i, p in enumerate(roster):
                     with cols[i % 3]:
                         headshot = p.get("headshot", "")
-                        pos_tag = p.get("position", "")
+                        pos_tag  = p.get("position", "")
                         year_tag = p.get("year", "")
-                        jersey  = p.get("jersey", "")
+                        jersey   = p.get("jersey", "")
                         card_html = f"""
 <div style="background:#1a2236;border:1px solid #1e2d45;border-radius:12px;
-            padding:.8rem;margin-bottom:.5rem;text-align:center;cursor:pointer">
-{f'<img src="{headshot}" style="width:60px;height:60px;border-radius:50%;object-fit:cover;margin-bottom:.4rem">' if headshot else '<div style="width:60px;height:60px;border-radius:50%;background:#2d4a6e;margin:0 auto .4rem;line-height:60px;font-size:1.2rem">👤</div>'}
-<div style="font-weight:700;font-size:.9rem">{p['name']}</div>
-<div style="font-size:.75rem;color:#6b7280">#{jersey} · {pos_tag} · {year_tag}</div>
+            padding:.8rem;margin-bottom:.4rem;text-align:center">
+{f'<img src="{headshot}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;margin-bottom:.3rem">' if headshot else '<div style="width:56px;height:56px;border-radius:50%;background:#2d4a6e;margin:0 auto .3rem;line-height:56px;font-size:1.1rem">👤</div>'}
+<div style="font-weight:700;font-size:.85rem">{p['name']}</div>
+<div style="font-size:.72rem;color:#6b7280">#{jersey} · {pos_tag} · {year_tag}</div>
 </div>"""
                         st.markdown(card_html, unsafe_allow_html=True)
-                        if st.button("Stats & Report", key=f"player_{espn_id}_{p['id']}",
-                                     use_container_width=True):
-                            show_player(str(p["id"]), p["name"])
+                        with st.expander("Stats & Scouting"):
+                            _render_player(st.container(), str(p["id"]), p["name"])
 
         # ─ Schedule tab ───────────────────────────────────────────────
         with t_sched:
@@ -932,7 +927,7 @@ elif st.session_state.page == "teams":
                 st.info("Schedule not available.")
             else:
                 for game in schedule:
-                    date_str = game["date"][:10] if game["date"] else ""
+                    date_str  = game["date"][:10] if game["date"] else ""
                     completed = game.get("completed", False)
                     status    = game.get("status", "")
                     if completed and game.get("home_score") and game.get("away_score"):
@@ -942,14 +937,15 @@ elif st.session_state.page == "teams":
                     else:
                         score_str = status
 
-                    sc1, sc2, sc3 = st.columns([2, 3, 2])
+                    sc1, sc2 = st.columns([2, 5])
                     sc1.caption(date_str)
-                    sc2.markdown(f"{game['name']}    {score_str}")
+                    label = f"{game['name']}    {score_str}"
                     if completed:
-                        if sc3.button("📊 Box Score", key=f"bs_{game['event_id']}",
-                                       use_container_width=True):
-                            show_boxscore(str(game["event_id"]), game["name"])
-                    st.markdown("---")
+                        with sc2.expander(label):
+                            _render_boxscore(st.container(),
+                                             str(game["event_id"]), game["name"])
+                    else:
+                        sc2.markdown(label)
 
         # ─ Facts tab ──────────────────────────────────────────────────
         with t_facts:
