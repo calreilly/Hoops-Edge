@@ -171,24 +171,88 @@ with tab_picks:
     # ── Step 2: Game selection ────────────────────────────────────────────────
     if st.session_state.all_games:
         all_games = st.session_state.all_games
-        game_labels = {
-            g.game_id: (
-                f"{g.away_team} @ {g.home_team}  "
-                f"{'⭐ ' if (g.home_stats or g.away_stats) else ''}"  # star = has stats
-                f"({g.game_time.strftime('%I:%M %p ET')})"
-            )
-            for g in all_games
-        }
-        id_to_game = {g.game_id: g for g in all_games}
 
-        st.markdown(f"### 📋 Select Games to Analyze ({len(all_games)} available today)")
-        st.caption("⭐ = team stats available in DB (better analysis quality)")
+        # ── Helpers ───────────────────────────────────────────────────────────
+        POWER_CONFERENCES = {"Big East", "Big 12", "SEC", "ACC", "Big Ten", "Pac-12"}
+
+        def _win_pct(record: str) -> float:
+            """Parse 'W-L' into a win percentage float."""
+            try:
+                w, l = record.split("-")
+                total = int(w) + int(l)
+                return int(w) / total if total else 0.0
+            except Exception:
+                return 0.0
+
+        def _rank_tag(stats) -> str:
+            """Return '#N ' prefix if ranked, '' otherwise."""
+            if stats and stats.ranking:
+                return f"#{stats.ranking} "
+            return ""
+
+        def _record_tag(stats) -> str:
+            """Return '(W-L)' if stats exist, '' otherwise."""
+            return f"({stats.record})" if stats else ""
+
+        def _intrigue_score(g) -> float:
+            """
+            Higher = more intriguing matchup to bet on.
+            Factors (descending priority):
+              1. Both teams ranked           → +10 each
+              2. One team ranked             → +10
+              3. Both teams have good record → +5 each if win% > .650
+              4. Power conference game       → +3
+              5. Has stats (quality info)    → +2 per team
+            """
+            score = 0.0
+            for stats in [g.home_stats, g.away_stats]:
+                if stats:
+                    if stats.ranking:
+                        score += 10
+                    if _win_pct(stats.record) > 0.65:
+                        score += 5
+                    if stats.conference in POWER_CONFERENCES:
+                        score += 3
+                    score += 2  # has stats at all
+            return score
+
+        # Sort games by intrigue before building labels
+        sorted_games = sorted(all_games, key=_intrigue_score, reverse=True)
+
+        def _game_label(g) -> str:
+            away_rank = _rank_tag(g.away_stats)
+            home_rank = _rank_tag(g.home_stats)
+            away_rec  = _record_tag(g.away_stats)
+            home_rec  = _record_tag(g.home_stats)
+            tip       = g.game_time.strftime("%I:%M %p ET")
+            data_star = "⭐ " if (g.home_stats or g.away_stats) else ""
+            return (
+                f"{data_star}"
+                f"{away_rank}{g.away_team} {away_rec} "
+                f"@ {home_rank}{g.home_team} {home_rec}  "
+                f"· {tip}"
+            )
+
+        game_labels  = {g.game_id: _game_label(g) for g in sorted_games}
+        id_to_game   = {g.game_id: g for g in all_games}
+        ranked_count = sum(1 for g in all_games
+                           if (g.home_stats and g.home_stats.ranking)
+                           or (g.away_stats and g.away_stats.ranking))
+
+        st.markdown(f"### 📋 Select Games to Analyze "
+                    f"({len(all_games)} available · {ranked_count} ranked matchups)")
+        st.caption(
+            "⭐ = team stats available  ·  "
+            "#N = AP ranking  ·  "
+            "sorted by matchup intrigue (ranked games first)"
+        )
 
         selected_ids = st.multiselect(
             "Pick the games you want to bet on:",
             options=list(game_labels.keys()),
             format_func=lambda gid: game_labels[gid],
-            default=st.session_state.selected_ids,
+            default=[sid for sid in st.session_state.selected_ids
+                     if sid in game_labels],  # guard stale IDs
             placeholder="Choose one or more games...",
         )
         st.session_state.selected_ids = selected_ids
@@ -213,6 +277,8 @@ with tab_picks:
                     st.session_state.slate_error = str(e)
 
         st.divider()
+
+
 
     elif not load_btn:
         st.info("👈 Click **Load Today's Games** in the sidebar to fetch this evening's FanDuel slate.")

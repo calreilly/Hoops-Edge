@@ -8,7 +8,8 @@
     "pace": 67.1,
     "three_point_rate": 0.33,
     "ats_record": "14-11",
-    "conference": "Big East"
+    "conference": "Big East",
+    "ranking": null
   },
   {
     "team_id": "villanova",
@@ -19,7 +20,8 @@
     "pace": 63.4,
     "three_point_rate": 0.41,
     "ats_record": "12-13",
-    "conference": "Big East"
+    "conference": "Big East",
+    "ranking": null
   },
   {
     "team_id": "duke",
@@ -30,7 +32,8 @@
     "pace": 70.2,
     "three_point_rate": 0.36,
     "ats_record": "13-12",
-    "conference": "ACC"
+    "conference": "ACC",
+    "ranking": 6
   },
   {
     "team_id": "unc",
@@ -41,7 +44,8 @@
     "pace": 71.8,
     "three_point_rate": 0.38,
     "ats_record": "15-10",
-    "conference": "ACC"
+    "conference": "ACC",
+    "ranking": null
   },
   {
     "team_id": "gonzaga",
@@ -52,7 +56,8 @@
     "pace": 72.1,
     "three_point_rate": 0.34,
     "ats_record": "16-9",
-    "conference": "WCC"
+    "conference": "WCC",
+    "ranking": 14
   },
   {
     "team_id": "kansas",
@@ -63,7 +68,8 @@
     "pace": 69.3,
     "three_point_rate": 0.35,
     "ats_record": "13-12",
-    "conference": "Big 12"
+    "conference": "Big 12",
+    "ranking": 13
   },
   {
     "team_id": "auburn",
@@ -74,7 +80,8 @@
     "pace": 73.4,
     "three_point_rate": 0.37,
     "ats_record": "17-8",
-    "conference": "SEC"
+    "conference": "SEC",
+    "ranking": 2
   },
   {
     "team_id": "tennessee",
@@ -85,7 +92,8 @@
     "pace": 66.8,
     "three_point_rate": 0.31,
     "ats_record": "15-10",
-    "conference": "SEC"
+    "conference": "SEC",
+    "ranking": 7
   },
   {
     "team_id": "iowa-st",
@@ -96,7 +104,8 @@
     "pace": 68.2,
     "three_point_rate": 0.39,
     "ats_record": "14-11",
-    "conference": "Big 12"
+    "conference": "Big 12",
+    "ranking": 9
   },
   {
     "team_id": "marquette",
@@ -107,7 +116,8 @@
     "pace": 70.5,
     "three_point_rate": 0.40,
     "ats_record": "13-12",
-    "conference": "Big East"
+    "conference": "Big East",
+    "ranking": null
   },
   {
     "team_id": "houston",
@@ -118,7 +128,8 @@
     "pace": 65.3,
     "three_point_rate": 0.32,
     "ats_record": "17-8",
-    "conference": "Big 12"
+    "conference": "Big 12",
+    "ranking": 4
   },
   {
     "team_id": "florida",
@@ -129,7 +140,8 @@
     "pace": 72.6,
     "three_point_rate": 0.38,
     "ats_record": "16-9",
-    "conference": "SEC"
+    "conference": "SEC",
+    "ranking": 8
   },
   {
     "team_id": "michigan-st",
@@ -140,7 +152,8 @@
     "pace": 67.9,
     "three_point_rate": 0.34,
     "ats_record": "12-13",
-    "conference": "Big Ten"
+    "conference": "Big Ten",
+    "ranking": null
   },
   {
     "team_id": "purdue",
@@ -151,7 +164,8 @@
     "pace": 66.4,
     "three_point_rate": 0.36,
     "ats_record": "15-10",
-    "conference": "Big Ten"
+    "conference": "Big Ten",
+    "ranking": 20
   },
   {
     "team_id": "kentucky",
@@ -162,7 +176,8 @@
     "pace": 70.1,
     "three_point_rate": 0.33,
     "ats_record": "13-12",
-    "conference": "SEC"
+    "conference": "SEC",
+    "ranking": null
   },
   {
     "team_id": "arizona",
@@ -173,7 +188,8 @@
     "pace": 71.3,
     "three_point_rate": 0.35,
     "ats_record": "14-11",
-    "conference": "Big 12"
+    "conference": "Big 12",
+    "ranking": 15
   },
   {
     "team_id": "byu",
@@ -184,7 +200,8 @@
     "pace": 68.7,
     "three_point_rate": 0.42,
     "ats_record": "13-12",
-    "conference": "Big 12"
+    "conference": "Big 12",
+    "ranking": null
   },
   {
     "team_id": "st-johns",
@@ -195,7 +212,8 @@
     "pace": 71.0,
     "three_point_rate": 0.36,
     "ats_record": "15-10",
-    "conference": "Big East"
+    "conference": "Big East",
+    "ranking": 23
   },
   {
     "team_id": "creighton",
@@ -206,7 +224,8 @@
     "pace": 69.8,
     "three_point_rate": 0.43,
     "ats_record": "14-11",
-    "conference": "Big East"
+    "conference": "Big East",
+    "ranking": null
   },
   {
     "team_id": "texas-tech",
@@ -217,7 +236,8 @@
     "pace": 65.9,
     "three_point_rate": 0.33,
     "ats_record": "15-10",
-    "conference": "Big 12"
+    "conference": "Big 12",
+    "ranking": 22
   },
   {
     "team_id": "wichita-st",
@@ -228,7 +248,8 @@
     "pace": 64.5,
     "three_point_rate": 0.35,
     "ats_record": "11-14",
-    "conference": "American"
+    "conference": "American",
+    "ranking": null
   },
   {
     "team_id": "memphis",
@@ -239,7 +260,8 @@
     "pace": 74.2,
     "three_point_rate": 0.30,
     "ats_record": "12-13",
-    "conference": "American"
+    "conference": "American",
+    "ranking": null
   },
   {
     "team_id": "ohio-st",
@@ -250,7 +272,8 @@
     "pace": 68.4,
     "three_point_rate": 0.37,
     "ats_record": "11-14",
-    "conference": "Big Ten"
+    "conference": "Big Ten",
+    "ranking": null
   },
   {
     "team_id": "illinois",
@@ -261,7 +284,8 @@
     "pace": 67.6,
     "three_point_rate": 0.36,
     "ats_record": "14-11",
-    "conference": "Big Ten"
+    "conference": "Big Ten",
+    "ranking": 18
   },
   {
     "team_id": "baylor",
@@ -272,7 +296,8 @@
     "pace": 70.4,
     "three_point_rate": 0.37,
     "ats_record": "13-12",
-    "conference": "Big 12"
+    "conference": "Big 12",
+    "ranking": null
   },
   {
     "team_id": "seton-hall",
@@ -283,7 +308,8 @@
     "pace": 65.7,
     "three_point_rate": 0.34,
     "ats_record": "10-15",
-    "conference": "Big East"
+    "conference": "Big East",
+    "ranking": null
   },
   {
     "team_id": "oklahoma",
@@ -294,7 +320,8 @@
     "pace": 69.2,
     "three_point_rate": 0.35,
     "ats_record": "11-14",
-    "conference": "SEC"
+    "conference": "SEC",
+    "ranking": null
   },
   {
     "team_id": "louisville",
@@ -305,7 +332,8 @@
     "pace": 70.3,
     "three_point_rate": 0.33,
     "ats_record": "12-13",
-    "conference": "ACC"
+    "conference": "ACC",
+    "ranking": null
   },
   {
     "team_id": "pittsburgh",
@@ -316,7 +344,8 @@
     "pace": 68.8,
     "three_point_rate": 0.36,
     "ats_record": "13-12",
-    "conference": "ACC"
+    "conference": "ACC",
+    "ranking": null
   },
   {
     "team_id": "dayton",
@@ -327,6 +356,7 @@
     "pace": 67.3,
     "three_point_rate": 0.38,
     "ats_record": "14-11",
-    "conference": "Atlantic 10"
+    "conference": "Atlantic 10",
+    "ranking": null
   }
 ]

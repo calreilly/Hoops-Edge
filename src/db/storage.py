@@ -100,8 +100,14 @@ class BetLedger:
             "three_point_rate": float,
             "ats_record": str,
             "conference": str,
+            "ranking": int,
             "last_updated": str,
         }, pk="team_id", if_not_exists=True)
+
+        # Migration: add ranking column to pre-existing tables that lack it
+        existing_cols = {col.name for col in self.db["team_stats"].columns}
+        if "ranking" not in existing_cols:
+            self.db.execute("ALTER TABLE team_stats ADD COLUMN ranking INTEGER")
 
         # Seed bankroll if empty
         if not list(self.db["bankroll"].rows):

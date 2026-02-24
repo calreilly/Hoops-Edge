@@ -34,6 +34,7 @@ class TeamStats(BaseModel):
     three_point_rate: Optional[float] = Field(None, description="3PA / FGA ratio")
     ats_record: Optional[str] = Field(None, description="Against the spread record, e.g. '12-8'")
     conference: Optional[str] = None
+    ranking: Optional[int] = Field(None, description="AP Top 25 ranking, None if unranked")
     last_updated: Optional[datetime] = None
 
 
