@@ -97,11 +97,29 @@ def settle_bet(ledger: BetLedger, bet_id_prefix: str, result: str, profit_loss: 
     if len(all_bets) > 1:
         print(f"  ❌ Ambiguous ID prefix — matches {len(all_bets)} bets. Be more specific.")
         return
-
     bet = all_bets[0]
     ledger.settle_bet(bet["id"], result, profit_loss)
     print(f"\n  ✅ Bet [{bet['id'][:8]}] settled as {result.upper()} ({profit_loss:+.2f}u)")
     show_bankroll(ledger)
+
+
+def approve_or_reject_bet(ledger: BetLedger, bet_id_prefix: str, action: str):
+    """Approve or reject a pending bet by ID prefix."""
+    all_bets = list(ledger.db["bets"].rows_where("id LIKE ?", [f"{bet_id_prefix}%"]))
+    if not all_bets:
+        print(f"  ❌ No bet found with ID starting with '{bet_id_prefix}'")
+        return
+    if len(all_bets) > 1:
+        print(f"  ❌ Ambiguous prefix — matches {len(all_bets)} bets.")
+        return
+    bet = all_bets[0]
+    if action == "approve":
+        ledger.approve_bet(bet["id"])
+        print(f"  ✅ Bet [{bet['id'][:8]}] APPROVED — {bet['away_team']} @ {bet['home_team']} "
+              f"{bet['bet_type'].upper()} {bet['side'].upper()}")
+    else:
+        ledger.reject_bet(bet["id"])
+        print(f"  ❌ Bet [{bet['id'][:8]}] REJECTED")
 
 
 def seed_teams(db_path: str = "data/hoops_edge.db"):
@@ -120,7 +138,8 @@ async def main():
     parser.add_argument("--approved", action="store_true", help="Show approved bets")
     parser.add_argument("--settled", action="store_true", help="Show settled bets")
     parser.add_argument("--bankroll", action="store_true", help="Show current bankroll & record")
-    parser.add_argument("--seed", action="store_true", help="Seed team stats from data/team_stats.json")
+    parser.add_argument("--approve", metavar="BET_ID", help="Approve a pending bet by ID prefix")
+    parser.add_argument("--reject", metavar="BET_ID", help="Reject a pending bet by ID prefix")
     parser.add_argument("--settle", nargs=3, metavar=("BET_ID", "RESULT", "PROFIT_LOSS"),
                         help="Settle a bet: --settle <id_prefix> <win|loss|push> <units>")
     args = parser.parse_args()
@@ -129,6 +148,10 @@ async def main():
 
     if args.seed:
         seed_teams()
+    elif args.approve:
+        approve_or_reject_bet(ledger, args.approve, "approve")
+    elif args.reject:
+        approve_or_reject_bet(ledger, args.reject, "reject")
     elif args.slate:
         await run_slate(ledger, dry_run=args.dry_run, max_games=args.max_games)
     elif args.bets:

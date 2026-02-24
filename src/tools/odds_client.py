@@ -75,20 +75,54 @@ def fetch_fanduel_ncaab_odds() -> list[dict]:
 
 def _lookup_team_stats(team_name: str, ledger: BetLedger) -> Optional[TeamStats]:
     """
-    Try to match a team name from the API to a record in our team_stats DB.
-    Fuzzy-matches on the last word (e.g. 'Huskies' matches 'UConn Huskies').
+    Match a team name from the Odds API to a record in our team_stats DB.
+
+    Strategy (in order):
+      1. Exact match (case-insensitive)
+      2. ≥2 meaningful words overlap between API name and stored name
+      3. No match → return None (never assign stats to the wrong team)
+
+    Single-word mascot matches (e.g. 'Tigers', 'Devils') are intentionally
+    rejected to prevent assigning P5 stats to low-major programs.
     """
+    # Words that appear in many team names and should not count as meaningful
+    STOP_WORDS = {"st", "state", "the", "of", "at", "university", "college",
+                  "a&m", "u", "nc", "pa", "ny", "la"}
+
     all_stats = ledger.get_all_team_stats()
+    if not all_stats:
+        return None
+
     name_lower = team_name.lower()
+    name_words = {w for w in name_lower.split() if w not in STOP_WORDS}
+
+    best_match = None
+    best_score = 0
+
     for row in all_stats:
         stored = row["team_name"].lower()
-        # Exact match
+
+        # 1. Exact match
         if stored == name_lower:
             return TeamStats(**{k: v for k, v in row.items() if k != "last_updated"})
-        # Partial match — last word of either direction
-        if name_lower.split()[-1] in stored or stored.split()[-1] in name_lower:
-            return TeamStats(**{k: v for k, v in row.items() if k != "last_updated"})
+
+        # 2. Word-overlap scoring
+        stored_words = {w for w in stored.split() if w not in STOP_WORDS}
+        overlap = name_words & stored_words
+        score = len(overlap)
+
+        if score > best_score:
+            best_score = score
+            best_match = row
+
+    # Require at least 2 meaningful word matches to accept
+    if best_score >= 2 and best_match is not None:
+        return TeamStats(**{k: v for k, v in best_match.items() if k != "last_updated"})
+
+    # No confident match — return None so the agent gets no stats
+    # (better to say "no data" than to give wrong data)
     return None
+
 
 
 def parse_odds_response(raw_games: list[dict], ledger: BetLedger) -> list[Game]:
