@@ -231,119 +231,136 @@ html, body, [class*="css"] {{
 /* ── Divider ── */
 hr {{ border-color: {COLORS["border"]} !important; }}
 
-/* ══ 90s ARCADE HOME ══ */
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+/* ══ INDIE VIBE HOME ══ */
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
 
-.arcade-hero {{
-    position: relative;
-    background: #000;
-    border: 4px solid #f97316;
-    border-radius: 8px;
+/* Indie hero */
+.indie-hero {{
+    background: linear-gradient(135deg, #1a0533 0%, #0d1f3c 40%, #0a2a1a 100%);
+    border-radius: 24px;
+    padding: 3rem 2rem 2.5rem;
+    text-align: center;
     margin-bottom: 2rem;
+    position: relative;
     overflow: hidden;
-    box-shadow: 0 0 60px rgba(249,115,22,.35), 0 0 120px rgba(249,115,22,.15), inset 0 0 60px rgba(0,0,0,.8);
+    border: 1px solid rgba(255,255,255,.06);
 }}
-.arcade-hero::before {{
+.indie-hero::before {{
     content: '';
     position: absolute;
     inset: 0;
-    background: repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.12) 3px,rgba(0,0,0,.12) 4px);
+    background:
+        radial-gradient(ellipse at 20% 50%, rgba(255,105,180,.18) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 30%, rgba(64,224,208,.16) 0%, transparent 45%),
+        radial-gradient(ellipse at 60% 80%, rgba(147,112,219,.14) 0%, transparent 45%);
     pointer-events: none;
-    z-index: 10;
 }}
-.arcade-inner {{
-    padding: 2.5rem 2rem 2rem;
-    background: radial-gradient(ellipse at 50% 0%,rgba(249,115,22,.12) 0%,transparent 60%),
-                radial-gradient(ellipse at 50% 100%,rgba(251,191,36,.06) 0%,transparent 55%), #050a12;
+.indie-title {{
+    font-family: 'Nunito', sans-serif;
+    font-weight: 900;
+    font-size: 3rem;
+    background: linear-gradient(135deg, #ff6eb4 0%, #40e0d0 50%, #b48aff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0 0 .5rem;
+    letter-spacing: -1px;
+    animation: float 4s ease-in-out infinite;
 }}
-.arcade-title {{
-    font-family: 'Press Start 2P', monospace !important;
-    font-size: 2rem;
-    color: #f97316;
-    text-shadow: 0 0 10px #f97316, 0 0 30px rgba(249,115,22,.7), 0 0 60px rgba(249,115,22,.4), 4px 4px 0 #7a3910;
+@keyframes float {{
+    0%,100% {{ transform: translateY(0); }}
+    50% {{ transform: translateY(-6px); }}
+}}
+.indie-sub {{
+    font-family: 'Nunito', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: rgba(255,255,255,.55);
+    letter-spacing: .02em;
+    margin-bottom: .4rem;
+}}
+.indie-date {{
+    font-family: 'Nunito', sans-serif;
+    font-size: .82rem;
+    color: rgba(255,255,255,.28);
+    letter-spacing: .06em;
+}}
+
+/* Stat pills */
+.indie-stat {{
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 20px;
+    padding: 1.1rem 1rem;
     text-align: center;
-    margin: 0 0 .6rem;
-    letter-spacing: 4px;
-    animation: flicker 6s ease-in-out infinite;
+    transition: transform .2s, box-shadow .2s;
 }}
-@keyframes flicker {{
-    0%,19%,21%,23%,25%,54%,56%,100% {{ opacity: 1; }}
-    20%,22%,24%,55% {{ opacity: .85; }}
+.indie-stat:hover {{ transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,.3); }}
+.indie-stat-val {{
+    font-family: 'Nunito', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 900;
+    line-height: 1;
+    margin-bottom: .3rem;
 }}
-.arcade-sub {{
-    font-family: 'Press Start 2P', monospace !important;
-    font-size: .5rem;
-    color: #fbbf24;
-    text-align: center;
-    letter-spacing: 2px;
-    text-shadow: 0 0 8px rgba(251,191,36,.6);
-    margin-bottom: 1.4rem;
-}}
-.blink {{ animation: blink 1.1s step-start infinite; }}
-@keyframes blink {{ 50% {{ opacity: 0; }} }}
-.highscore-row {{
-    font-family: 'Press Start 2P', monospace !important;
-    font-size: .45rem;
-    color: #fbbf24;
-    text-align: center;
-    letter-spacing: 2px;
-    text-shadow: 0 0 6px rgba(251,191,36,.5);
-    margin-top: .3rem;
-}}
-.pixel-stat {{
-    background: #000;
-    border: 2px solid #f97316;
-    border-radius: 4px;
-    padding: 1rem;
-    text-align: center;
-    box-shadow: 0 0 14px rgba(249,115,22,.25), inset 0 0 20px rgba(0,0,0,.6);
-    position: relative;
-    overflow: hidden;
-}}
-.pixel-stat::after {{
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg,transparent,rgba(249,115,22,.8),transparent);
-    animation: scan 2.5s linear infinite;
-}}
-@keyframes scan {{ 0% {{ transform:translateY(0); }} 100% {{ transform:translateY(60px); }} }}
-.pixel-stat .ps-val {{
-    font-family: 'Press Start 2P', monospace;
-    font-size: 1.15rem;
-    color: #f97316;
-    text-shadow: 0 0 8px #f97316;
-    margin-bottom: .5rem;
-}}
-.pixel-stat .ps-lbl {{
-    font-family: 'Press Start 2P', monospace;
-    font-size: .42rem;
-    color: #6b7280;
-    letter-spacing: 2px;
+.indie-stat-lbl {{
+    font-family: 'Nunito', sans-serif;
+    font-size: .7rem;
+    font-weight: 700;
+    color: rgba(255,255,255,.35);
+    letter-spacing: .1em;
     text-transform: uppercase;
 }}
-.arcade-btn-card {{
-    background: #000;
-    border: 2px solid #1e3a5f;
-    border-radius: 6px;
-    padding: 1.2rem 1.4rem;
-    margin-bottom: .5rem;
-    transition: border-color .15s, box-shadow .15s;
+
+/* Action section header */
+.indie-section-hdr {{
+    font-family: 'Nunito', sans-serif;
+    font-size: 1rem;
+    font-weight: 800;
+    color: rgba(255,255,255,.45);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
 }}
-.arcade-btn-card:hover {{
-    border-color: #f97316;
-    box-shadow: 0 0 18px rgba(249,115,22,.3);
+
+/* Full-card Streamlit buttons — keys home_slate / home_pending / home_search */
+[data-testid="stButton"] > button[kind="secondary"].indie-card {{
+    width: 100%;
 }}
-.arcade-btn-icon {{ font-size: 1.5rem; margin-bottom: .4rem; }}
-.arcade-btn-title {{
-    font-family: 'Press Start 2P', monospace;
-    font-size: .52rem;
-    color: #f97316;
-    letter-spacing: 1px;
-    margin-bottom: .35rem;
+/* Target by aria-label (key) */
+div[data-testid="stButton"]:has(button[key="home_slate"]) button,
+div[data-testid="stButton"]:has(button[key="home_pending"]) button,
+div[data-testid="stButton"]:has(button[key="home_search"]) button,
+div[data-testid="stButton"]:has(button[key="home_picks"]) button,
+div[data-testid="stButton"]:has(button[key="home_teams"]) button,
+div[data-testid="stButton"]:has(button[key="home_history"]) button {{
+    width: 100%;
+    height: auto;
+    min-height: 130px;
+    background: rgba(255,255,255,.04) !important;
+    border: 1px solid rgba(255,255,255,.1) !important;
+    border-radius: 20px !important;
+    color: white !important;
+    font-family: 'Nunito', sans-serif !important;
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    white-space: pre-wrap !important;
+    line-height: 1.5 !important;
+    padding: 1.2rem 1.4rem !important;
+    text-align: left !important;
+    transition: transform .18s, box-shadow .18s, border-color .18s, background .18s !important;
 }}
-.arcade-btn-desc {{ font-size: .78rem; color: #6b7280; }}
+div[data-testid="stButton"]:has(button[key="home_slate"]) button:hover,
+div[data-testid="stButton"]:has(button[key="home_pending"]) button:hover,
+div[data-testid="stButton"]:has(button[key="home_search"]) button:hover,
+div[data-testid="stButton"]:has(button[key="home_picks"]) button:hover,
+div[data-testid="stButton"]:has(button[key="home_teams"]) button:hover,
+div[data-testid="stButton"]:has(button[key="home_history"]) button:hover {{
+    transform: translateY(-4px) !important;
+    box-shadow: 0 12px 32px rgba(0,0,0,.4) !important;
+    background: rgba(255,255,255,.08) !important;
+    border-color: rgba(255,255,255,.22) !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -468,60 +485,53 @@ if st.session_state.page == "home":
     ev_bets = [b for b in pending_bets if b["status"] == "approved"]
     pl_sign = "+" if total_pl >= 0 else ""
 
-    # ── 90s ARCADE HERO ──────────────────────────────────────────────
+    # ── INDIE HERO ──────────────────────────────────────────────
     st.markdown(f"""
-<div class="arcade-hero">
-  <div class="arcade-inner">
-    <div class="arcade-title">🎖️ HOOPS EDGE 🎖️</div>
-    <div class="arcade-sub">INSERT COIN TO CONTINUE <span class="blink">▮</span></div>
-    <div class="highscore-row">-- AI POWERED COLLEGE BASKETBALL EDGE DETECTION --</div>
-    <div class="highscore-row" style="margin-top:.5rem;font-size:.4rem;color:#4b5563">{today.upper()}</div>
-  </div>
+<div class="indie-hero">
+  <div class="indie-title">🏀 Hoops Edge</div>
+  <div class="indie-sub">AI-Powered College Basketball Edge Detection</div>
+  <div class="indie-date">{today}</div>
 </div>
 """, unsafe_allow_html=True)
 
-    # ── PIXEL STAT TILES ───────────────────────────────────────────────
+    # ── STAT PILLS ──────────────────────────────────────────────
+    pv_color = "#4ade80" if total_pl >= 0 else "#f87171"
     c1, c2, c3, c4 = st.columns(4)
-    pv_color = "#22c55e" if total_pl >= 0 else "#ef4444"
-    tiles = [
-        (c1, f"{bankroll['balance_units']:.0f}u",  "BANKROLL",  "#f97316"),
-        (c2, f"{wins}–{losses}",                    "RECORD",    "#fbbf24"),
-        (c3, str(len(pending_bets)),                "PENDING",   "#60a5fa"),
-        (c4, f"{pl_sign}{total_pl:.1f}u",           "P / L",     pv_color),
+    stat_defs = [
+        (c1, f"{bankroll['balance_units']:.0f}u", "Bankroll",  "linear-gradient(135deg,#ff6eb4,#ff9a5c)"),
+        (c2, f"{wins}–{losses}",                 "Record",    "linear-gradient(135deg,#40e0d0,#60a5fa)"),
+        (c3, str(len(pending_bets)),              "Pending",   "linear-gradient(135deg,#b48aff,#ff6eb4)"),
+        (c4, f"{pl_sign}{total_pl:.1f}u",         "P / L",     f"linear-gradient(135deg,{pv_color},{pv_color}aa)"),
     ]
-    for col, val, lbl, col_hex in tiles:
+    for col, val, lbl, grad in stat_defs:
         with col:
             st.markdown(f"""
-<div class="pixel-stat">
-  <div class="ps-val" style="color:{col_hex};text-shadow:0 0 8px {col_hex}">{val}</div>
-  <div class="ps-lbl">{lbl}</div>
+<div class="indie-stat">
+  <div class="indie-stat-val" style="background:{grad};-webkit-background-clip:text;
+       -webkit-text-fill-color:transparent;background-clip:text">{val}</div>
+  <div class="indie-stat-lbl">{lbl}</div>
 </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="indie-section-hdr">✨ Quick Actions</div>', unsafe_allow_html=True)
 
-    # ── PLAYER SELECT (Quick Actions) ─────────────────────────────────
-    st.markdown(
-        '<div style="font-family:\'Press Start 2P\',monospace;font-size:.65rem;'
-        'color:#fbbf24;letter-spacing:2px;text-shadow:0 0 6px rgba(251,191,36,.5);'
-        'margin-bottom:1rem">▶ SELECT YOUR ACTION</div>',
-        unsafe_allow_html=True
-    )
-
-    qa1, qa2, qa3 = st.columns(3)
+    # ── FULL-CARD CLICKABLE BUTTONS ──────────────────────────────
+    # Use st.button with multi-line label — styled via CSS into full card
+    # 2-row layout
+    row1 = st.columns(3)
+    row2 = st.columns(3)
     actions = [
-        (qa1, "home_slate",   "slate",   "📋", "TODAY'S SLATE",   "Load live lines & pick your games", "#f97316"),
-        (qa2, "home_pending", "pending", "⏳", "PENDING BETS",   f"{len(pending_bets)} bet(s) awaiting action", "#22c55e"),
-        (qa3, "home_search",  "search",  "🔍", "GAME SEARCH",    "Look up odds by team or conference", "#60a5fa"),
+        (row1[0], "home_slate",   "slate",   "📋", "Today's Slate",   "Live lines → Pick games → Find edges"),
+        (row1[1], "home_picks",   "picks",   "📊", "Picks & Analysis","See all AI bet suggestions"),
+        (row1[2], "home_pending", "pending", "⏳", "Pending Bets",   f"{len(pending_bets)} bet(s) awaiting action"),
+        (row2[0], "home_search",  "search",  "🔍", "Game Search",    "Odds by team or conference"),
+        (row2[1], "home_teams",   "teams",   "🏀", "Teams Explorer", "Roster, schedule & scouting reports"),
+        (row2[2], "home_history", "history", "📈", "Performance",    "Bankroll history & settled bets"),
     ]
-    for col, key, pg, icon, title, desc, accent in actions:
+    for col, key, pg, icon, title, desc in actions:
         with col:
-            st.markdown(f"""
-<div class="arcade-btn-card" style="border-color:rgba({','.join(str(int(accent.lstrip('#')[i:i+2],16)) for i in (0,2,4))},.25)">
-  <div class="arcade-btn-icon">{icon}</div>
-  <div class="arcade-btn-title" style="color:{accent}">{title}</div>
-  <div class="arcade-btn-desc">{desc}</div>
-</div>""", unsafe_allow_html=True)
-            if st.button(f"▶ {title}", key=key):
+            label = f"{icon}  {title}\n{desc}"
+            if st.button(label, key=key, use_container_width=True):
                 st.session_state.page = pg
                 st.rerun()
 
