@@ -952,50 +952,162 @@ elif st.session_state.page == "teams":
             if not schedule:
                 st.info("Schedule not available.")
             else:
-                for game in schedule:
+                # Most recent first
+                sorted_sched = sorted(
+                    schedule, key=lambda g: g.get("date", ""), reverse=True
+                )
+                for game in sorted_sched:
                     date_str  = game["date"][:10] if game["date"] else ""
                     completed = game.get("completed", False)
-                    status    = game.get("status", "")
-                    if completed and game.get("home_score") and game.get("away_score"):
-                        score_str = f"**{game['away_score']} – {game['home_score']}**"
+                    hs  = game.get("home_score")
+                    aws = game.get("away_score")
+                    status = game.get("status", "")
+
+                    won = None
+                    if completed and hs is not None and aws is not None:
+                        try:
+                            team_is_home = game.get("team_is_home", True)
+                            our = int(hs) if team_is_home else int(aws)
+                            opp = int(aws) if team_is_home else int(hs)
+                            won = our > opp
+                            score_str = f"{hs}–{aws}"
+                        except (ValueError, TypeError):
+                            score_str = f"{hs}–{aws}"
                     elif not completed:
-                        score_str = f"*{status}*"
+                        score_str = status
                     else:
                         score_str = status
 
-                    sc1, sc2 = st.columns([2, 5])
-                    sc1.caption(date_str)
-                    label = f"{game['name']}    {score_str}"
-                    if completed:
-                        with sc2.expander(label):
-                            _render_boxscore(st.container(),
-                                             str(game["event_id"]), game["name"])
+                    if won is True:
+                        bg, border, pill = "rgba(34,197,94,.12)", "rgba(34,197,94,.4)", "✅ W"
+                    elif won is False:
+                        bg, border, pill = "rgba(239,68,68,.10)", "rgba(239,68,68,.35)", "❌ L"
                     else:
-                        sc2.markdown(label)
+                        bg, border, pill = "transparent", "#1e2d45", "🕐"
+
+                    if completed:
+                        with st.expander(
+                            f"{pill}  {game['name']}  ·  {score_str}  ·  {date_str}"
+                        ):
+                            _render_boxscore(
+                                st.container(), str(game["event_id"]), game["name"]
+                            )
+                    else:
+                        st.markdown(
+                            f'<div style="background:{bg};border:1px solid {border};'
+                            f'border-radius:8px;padding:.4rem .8rem;margin-bottom:.3rem;'
+                            f'font-size:.85rem;display:flex;gap:.6rem;align-items:center">'
+                            f'<span style="color:#6b7280;min-width:82px">{date_str}</span>'
+                            f'<span style="flex:1;font-weight:600">{game["name"]}</span>'
+                            f'<span style="color:#94a3b8">{score_str}</span></div>',
+                            unsafe_allow_html=True,
+                        )
 
         # ─ Facts tab ──────────────────────────────────────────────────
         with t_facts:
             db_stats = None
             for s in ledger.get_all_team_stats():
-                if s.get("team_name", "").lower() in team_name.lower() or team_name.lower() in s.get("team_name", "").lower():
+                if (s.get("team_name", "").lower() in team_name.lower()
+                        or team_name.lower() in s.get("team_name", "").lower()):
                     db_stats = s
                     break
 
             loc  = summary.get("location", "")
             nick = summary.get("nickname", "")
-            st.markdown(f"**Location:** {loc}")
-            st.markdown(f"**Nickname:** {nick}")
-            st.markdown(f"**Record:** {summary.get('record', '—')}")
-            if db_stats:
+            rec  = summary.get("record", "—")
+            st.markdown(f"**{summary.get('name', team_name)}**  ·  {loc}  ·  {nick}")
+            st.markdown(f"**Record:** `{rec}`")
+
+            if not db_stats:
+                st.info("Detailed scouting data not in our database for this team.")
+            else:
+                oe   = float(db_stats.get("offensive_efficiency", 0) or 0)
+                de   = float(db_stats.get("defensive_efficiency",  0) or 0)
+                pace = float(db_stats.get("pace",                  0) or 0)
+                tpr  = float(db_stats.get("three_point_rate",      0) or 0)
+                ats  = db_stats.get("ats_record", "")
+                net  = oe - de
+
                 st.markdown("---")
-                st.markdown("**Performance Metrics (from DB)**")
+                st.markdown("**📊 Performance Metrics**")
                 fm1, fm2, fm3, fm4 = st.columns(4)
-                fm1.metric("Off. Efficiency", f"{db_stats.get('offensive_efficiency', 0):.1f}")
-                fm2.metric("Def. Efficiency", f"{db_stats.get('defensive_efficiency', 0):.1f}")
-                fm3.metric("Pace",            f"{db_stats.get('pace', 0):.1f}")
-                fm4.metric("3PT Rate",        f"{db_stats.get('three_point_rate', 0):.1%}")
-                if db_stats.get('ats_record'):
-                    st.markdown(f"**ATS Record:** {db_stats['ats_record']}")
+                fm1.metric("Off. Efficiency", f"{oe:.1f}")
+                fm2.metric("Def. Efficiency", f"{de:.1f}")
+                fm3.metric("Net Margin",      f"{net:+.1f}")
+                fm4.metric("3PT Rate",        f"{tpr:.1%}")
+                if ats:
+                    st.markdown(f"**ATS Record:** {ats}  ·  **Pace:** {pace:.1f} poss/game")
+
+                # ── Scouting report ──────────────────────────────────────
+                st.markdown("---")
+                st.markdown("**🔍 Scouting Report**")
+
+                strengths: list[str] = []
+                weaknesses: list[str] = []
+
+                # Offense (national avg ~105)
+                if oe >= 115:
+                    strengths.append(f"**Elite offense** (OE {oe:.1f}) — one of the country's most efficient attacks; scores against any scheme.")
+                elif oe >= 108:
+                    strengths.append(f"**Efficient offense** (OE {oe:.1f}) — generates quality looks and converts at a high rate.")
+                else:
+                    weaknesses.append(f"**Offensive struggles** (OE {oe:.1f}) — below-average efficiency; games often become grind-it-out affairs.")
+
+                # Defense (lower = better, avg ~105)
+                if de <= 95:
+                    strengths.append(f"**Suffocating defense** (DE {de:.1f}) — elite unit; opponents rarely score efficiently. Carries close games.")
+                elif de <= 102:
+                    strengths.append(f"**Solid defense** (DE {de:.1f}) — limits easy baskets and second chances; above national average.")
+                else:
+                    weaknesses.append(f"**Defensive liability** (DE {de:.1f}) — opponents score at will; team must win shootouts to cover spreads.")
+
+                # Pace
+                if pace >= 74:
+                    strengths.append(f"**Up-tempo** ({pace:.1f} poss/game) — forces the pace, exploits slow rotations, and condenses game length.")
+                elif pace <= 63:
+                    weaknesses.append(f"**Slow grind** ({pace:.1f} poss/game) — methodical halfcourt team; totals consistently track under.")
+                else:
+                    strengths.append(f"**Balanced tempo** ({pace:.1f} poss/game) — flexible; adapts to opponent's preferred pace.")
+
+                # Three-point rate
+                if tpr >= 0.42:
+                    strengths.append(f"**Arc-heavy offense** ({tpr:.0%} 3PT rate) — nearly unguardable on a hot night; high variance, can go cold quickly.")
+                elif tpr >= 0.35:
+                    strengths.append(f"**Perimeter depth** ({tpr:.0%} 3PT rate) — spreads the floor, creates driving lanes, and punishes drop coverage.")
+                else:
+                    weaknesses.append(f"**Limited three-point game** ({tpr:.0%} 3PT rate) — defenses pack the paint; relies on interior scoring and FTs.")
+
+                # Net efficiency
+                if net >= 15:
+                    strengths.append(f"**Dominant net margin (+{net:.1f})** — one of the nation's most complete teams; rarely squanders double-digit leads.")
+                elif net >= 8:
+                    strengths.append(f"**Positive net margin (+{net:.1f})** — consistently out-executes opponents across 40 minutes.")
+                elif net < 0:
+                    weaknesses.append(f"**Negative net margin ({net:.1f})** — gives back more than it earns; often loses leads in the final 5 minutes.")
+
+                if strengths:
+                    st.markdown("**✅ Strengths**")
+                    for item in strengths:
+                        st.markdown(f"- {item}")
+                if weaknesses:
+                    st.markdown("**⚠️ Weaknesses**")
+                    for item in weaknesses:
+                        st.markdown(f"- {item}")
+
+                # Betting angle
+                st.markdown("---")
+                st.markdown("**💰 Betting Angle**")
+                if net >= 12 and pace >= 70:
+                    angle = "Best as a home favorite. First-half lines are attractive given their fast starts. Fades poorly in road second halves."
+                elif de <= 98 and pace <= 65:
+                    angle = "Strong underdog value in low-total games. Defensive efficiency keeps games close — target unders and +spread."
+                elif tpr >= 0.40:
+                    angle = "High-variance — target spread both directions off neutral courts. Prime live-bet candidate during cold shooting stretches."
+                elif oe >= 112 and de >= 107:
+                    angle = "Offensive juggernaut with a leaky defense. Overs are attractive vs. fast opponents. Spread prone to volatile openers."
+                else:
+                    angle = "No clear systematic edge identified. Evaluate each game's matchup and line movement individually."
+                st.info(angle)
 
     # ─ Teams Grid page body ──────────────────────────────────────────────
     st.markdown('<div class="page-title">🏀 Teams Explorer</div>', unsafe_allow_html=True)
