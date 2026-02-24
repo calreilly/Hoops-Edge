@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 import asyncio
 import streamlit as st
 from datetime import datetime
+from typing import Optional
 
 from src.db.storage import BetLedger
 from src.tools.odds_client import get_live_games
@@ -875,7 +876,7 @@ elif st.session_state.page == "teams":
             st.dataframe(rows, use_container_width=True, hide_index=True)
 
     @st.dialog("🏀 Team Details", width="large")
-    def show_team(team_name: str, espn_id: int, db_ranking: int | None):
+    def show_team(team_name: str, espn_id: int, db_ranking: Optional[int]):
         with st.spinner(f"Loading {team_name}..."):
             summary  = fetch_team_summary(espn_id)
             roster   = fetch_team_roster(espn_id)
