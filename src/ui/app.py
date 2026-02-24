@@ -581,14 +581,16 @@ elif st.session_state.page == "picks":
                     cc[2].metric("EV", f"{rec.ev_analysis.expected_value:+.1%}")
                     cc[3].metric("Confidence", f"{rec.ev_analysis.confidence:.0%}")
 
-                a_col, r_col, _ = st.columns([1, 1, 5])
-                if a_col.button("✅ Approve", key=f"a_{bet_key}"):
+                a_col, r_col, _ = st.columns([1.2, 1, 4])
+                if a_col.button("📌 Place Bet", type="primary", key=f"a_{bet_key}",
+                                help="Save this bet to your pending list"):
                     bid = ledger.save_recommendation(rec)
                     ledger.approve_bet(bid)
-                    st.success(f"Approved! ID: `{bid[:8]}`")
+                    st.success(f"Bet placed! ID: `{bid[:8]}`  →  Check Pending Bets")
                     st.rerun()
-                if r_col.button("❌ Reject", key=f"r_{bet_key}"):
-                    st.toast("Rejected.", icon="❌")
+                if r_col.button("✖ Skip", key=f"r_{bet_key}",
+                                help="Dismiss this pick without saving"):
+                    st.toast("Skipped.", icon="✖")
 
                 st.markdown("---")
 
@@ -598,31 +600,50 @@ elif st.session_state.page == "picks":
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "pending":
     st.markdown('<div class="page-title">⏳ Pending Bets</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Review, approve, and settle your open positions</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Manage and settle your active positions</div>', unsafe_allow_html=True)
 
     pending = list(ledger.db["bets"].rows_where("status IN ('pending','approved')", []))
+
+    # ── Danger zone: clear all ────────────────────────────────────────────────
+    if pending:
+        with st.expander("⚠️ Danger zone"):
+            st.warning("This will permanently delete ALL pending and approved bets.")
+            if st.button("🗑 Clear All Pending Bets", type="primary"):
+                ledger.db.execute("DELETE FROM bets WHERE status IN ('pending','approved')")
+                ledger.db.conn.commit()
+                st.success("All pending bets cleared.")
+                st.rerun()
+
     if not pending:
         st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2.5rem">
           <div style="font-size:3rem">✅</div>
           <div style="font-weight:700;margin:.4rem 0 .2rem">All clear</div>
-          <div style="color:{COLORS['muted']}">No pending or approved bets.</div>
+          <div style="color:{COLORS['muted']}">No pending bets. Head to <b>Today's Slate</b> to generate picks.</div>
         </div>""", unsafe_allow_html=True)
     else:
         for bet in pending:
             icon  = "✅" if bet["status"] == "approved" else "🕐"
-            color = "green" if bet["status"] == "approved" else "gold"
             with st.expander(
                 f"{icon} {bet['away_team']} @ {bet['home_team']}  ·  "
                 f"{bet['bet_type'].upper()} {bet['side'].upper()}  "
                 f"({'%+d' % bet['american_odds']})  ·  EV {bet['expected_value']:+.1%}  ·  {bet['recommended_units']:.2f}u"
             ):
-                st.markdown(f"**ID:** `{bet['id'][:8]}` &nbsp;&nbsp; **Status:** {bet['status'].upper()}")
+                st.markdown(f"**ID:** `{bet['id'][:8]}` &nbsp;&nbsp; **Status:** `{bet['status'].upper()}`")
                 st.markdown(f"**Summary:** {bet['summary']}")
+
+                action_cols = st.columns([1, 1, 1, 3])
                 if bet["status"] == "pending":
-                    if st.button("✅ Approve", key=f"pa_{bet['id'][:8]}"):
+                    if action_cols[0].button("✅ Approve", key=f"pa_{bet['id'][:8]}"):
                         ledger.approve_bet(bet["id"])
                         st.success("Approved!")
                         st.rerun()
+                if action_cols[1].button("🗑 Remove", key=f"del_{bet['id'][:8]}",
+                                          help="Delete this bet without settling"):
+                    ledger.db.execute("DELETE FROM bets WHERE id = ?", [bet["id"]])
+                    ledger.db.conn.commit()
+                    st.success("Bet removed.")
+                    st.rerun()
+
                 st.markdown("---")
                 st.markdown("**Settle this bet:**")
                 sc1, sc2, sc3 = st.columns([2, 2, 1])
