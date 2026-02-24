@@ -261,6 +261,146 @@ def fetch_player_stats(player_data: dict) -> dict:
     }
 
 
+
+# ── Height helper ───────────────────────────────────────────────────────────────
+def inches_to_ft(raw) -> str:
+    """Convert raw height value (inches float/int or 'X-Y' string) to '6\'2"' format."""
+    if not raw:
+        return ""
+    if isinstance(raw, (int, float)):
+        total = int(raw)
+    else:
+        s = str(raw).strip()
+        if "-" in s:
+            try:
+                ft_part, in_part = s.split("-", 1)
+                return f"{int(ft_part)}'{int(in_part)}\""
+            except ValueError:
+                pass
+        try:
+            total = int(float(s))
+        except ValueError:
+            return s
+    feet, remaining = divmod(total, 12)
+    return f"{feet}'{remaining}\""
+
+
+# ── Stat leaders from most recent box score ─────────────────────────────────────
+def fetch_team_stat_leaders(espn_id: int, team_display_name: str = "") -> dict:
+    """
+    Return {pts_leader, reb_leader, ast_leader} dicts with 'name' and 'value'
+    derived from the most recent completed game box score.
+    """
+    sched = _get(f"{BASE}/teams/{espn_id}/schedule")
+    if not sched:
+        return {}
+
+    completed = [
+        ev.get("id") for ev in sched.get("events", [])
+        if ev.get("competitions", [{}])[0].get("status", {}).get("type", {}).get("completed")
+    ]
+    if not completed:
+        return {}
+
+    eid = completed[-1]
+    bs = _get(f"{BASE}/summary?event={eid}")
+    if not bs:
+        return {}
+
+    for team_entry in bs.get("boxscore", {}).get("players", []):
+        tname = team_entry.get("team", {}).get("displayName", "")
+        # Match by display name fragment
+        if team_display_name and team_display_name.split()[0].lower() not in tname.lower():
+            continue
+        cats = team_entry.get("statistics", [{}])
+        if not cats:
+            continue
+        labels = cats[0].get("labels", [])
+        athletes = cats[0].get("athletes", [])
+        try:
+            pi = labels.index("PTS")
+            ri = labels.index("REB")
+            ai = labels.index("AST")
+        except ValueError:
+            return {}
+
+        def leader(idx: int) -> dict:
+            best = max(
+                (a for a in athletes if not a.get("didNotPlay") and a.get("stats")),
+                key=lambda a: int(a.get("stats", [])[idx]) if a.get("stats") and len(a["stats"]) > idx and str(a["stats"][idx]).isdigit() else 0,
+                default=None,
+            )
+            if best:
+                return {
+                    "name":  best.get("athlete", {}).get("shortName", best.get("athlete", {}).get("displayName", "")),
+                    "value": best.get("stats", [])[idx] if len(best.get("stats", [])) > idx else "—",
+                }
+            return {"name": "—", "value": "—"}
+
+        return {
+            "pts": leader(pi),
+            "reb": leader(ri),
+            "ast": leader(ai),
+        }
+    return {}
+
+
+# ── Rich game card data from the scoreboard ────────────────────────────────────
+def fetch_scoreboard_game_info(espn_event_id: str) -> dict:
+    """
+    Pull logos, rank, record, venue for both teams from the scoreboard event endpoint.
+    Returns a dict with home/away sub-dicts.
+    """
+    d = _get(f"{BASE}/summary?event={espn_event_id}")
+    if not d:
+        return {}
+
+    header = d.get("header", {})
+    comps = header.get("competitions", [{}])
+    if not comps:
+        return {}
+    comp = comps[0]
+
+    result: dict = {"home": {}, "away": {}}
+    for c in comp.get("competitors", []):
+        side = c.get("homeAway", "home")
+        team = c.get("team", {})
+        rank = c.get("rank", None) or c.get("curatedRank", {}).get("current", None)
+        # record from header competitor records list
+        records = c.get("records", [])
+        rec = next((r.get("summary", "") for r in records if r.get("name") == "overall"), "")
+        result[side] = {
+            "logo":   team.get("logo", logo_url(int(team.get("id", 0)))),
+            "name":   team.get("displayName", ""),
+            "short":  team.get("shortDisplayName", ""),
+            "color":  "#" + team.get("color", "1a2236"),
+            "rank":   rank if rank and rank <= 25 else None,
+            "record": rec,
+        }
+
+    # Venue
+    venue_d = d.get("gameInfo", {}).get("venue", {})
+    result["venue"] = (
+        f"{venue_d.get('fullName', '')} — "
+        f"{venue_d.get('address', {}).get('city', '')}, "
+        f"{venue_d.get('address', {}).get('state', '')}"
+    ).strip(" —, ")
+
+    # Odds from pickcenter if present
+    pcs = d.get("pickcenter", [])
+    spread_str = ""
+    ou_str = ""
+    if pcs:
+        pc = pcs[0]
+        spread_str = pc.get("details", "")
+        ou = pc.get("overUnder")
+        ou_str = f"O/U {ou:.1f}" if ou else ""
+    result["spread"] = spread_str
+    result["ou"]     = ou_str
+
+    return result
+
+
 # ── ESPN ID map for our 30 seeded teams ────────────────────────────────────────
 # Used to build the Teams Explorer grid
 TEAM_ESPN_IDS: dict[str, int] = {

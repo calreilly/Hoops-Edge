@@ -17,6 +17,7 @@ from src.agents.ev_calculator import analyze_full_slate
 from src.tools.espn_client import (
     fetch_team_summary, fetch_team_roster, fetch_team_schedule,
     fetch_best_worst, fetch_boxscore, fetch_player_stats,
+    fetch_team_stat_leaders, fetch_scoreboard_game_info, inches_to_ft,
     logo_url, TEAM_ESPN_IDS
 )
 
@@ -346,9 +347,10 @@ div[data-testid="stButton"]:has(button[key="home_history"]) button {{
     font-weight: 700 !important;
     white-space: pre-wrap !important;
     line-height: 1.5 !important;
-    padding: 1.2rem 1.4rem !important;
+    padding: 1.5rem 1.6rem !important;
     text-align: left !important;
-    transition: transform .18s, box-shadow .18s, border-color .18s, background .18s !important;
+    min-height: 160px !important;
+    transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease, border-color .18s, background .18s !important;
 }}
 div[data-testid="stButton"]:has(button[key="home_slate"]) button:hover,
 div[data-testid="stButton"]:has(button[key="home_pending"]) button:hover,
@@ -356,11 +358,34 @@ div[data-testid="stButton"]:has(button[key="home_search"]) button:hover,
 div[data-testid="stButton"]:has(button[key="home_picks"]) button:hover,
 div[data-testid="stButton"]:has(button[key="home_teams"]) button:hover,
 div[data-testid="stButton"]:has(button[key="home_history"]) button:hover {{
-    transform: translateY(-4px) !important;
-    box-shadow: 0 12px 32px rgba(0,0,0,.4) !important;
-    background: rgba(255,255,255,.08) !important;
-    border-color: rgba(255,255,255,.22) !important;
+    transform: translateY(-8px) scale(1.02) !important;
+    box-shadow: 0 20px 48px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.14) !important;
+    background: rgba(255,255,255,.09) !important;
+    border-color: rgba(255,255,255,.28) !important;
 }}
+/* Slate game cards */
+.game-card {{
+    background: rgba(255,255,255,.035);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 18px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1.1rem;
+}}
+.gc-teams {{ display:flex; align-items:center; gap:1.2rem; margin-bottom:.8rem; }}
+.gc-team {{ display:flex; flex-direction:column; align-items:center; min-width:100px; gap:.25rem; }}
+.gc-team img {{ border-radius:8px; }}
+.gc-rank {{ font-family:'Nunito',sans-serif; font-size:.65rem; font-weight:800; color:#fbbf24; }}
+.gc-tname {{ font-family:'Nunito',sans-serif; font-weight:800; font-size:.85rem; text-align:center; color:#f1f5f9; line-height:1.25; }}
+.gc-rec {{ font-size:.72rem; color:#6b7280; font-weight:600; }}
+.gc-label {{ font-size:.62rem; color:#4b5563; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }}
+.gc-vs {{ font-family:'Nunito'; font-size:1rem; font-weight:900; color:#374151; padding:0 .5rem; }}
+.gc-mid {{ flex:1; display:flex; flex-direction:column; gap:.4rem; }}
+.gc-venue {{ font-size:.75rem; color:#60a5fa; font-weight:600; }}
+.gc-spread {{ font-size:.75rem; color:#a3e635; font-weight:700; }}
+.gc-leaders {{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.3rem; }}
+.gc-pill {{ background:rgba(255,255,255,.06); border-radius:7px; padding:.2rem .55rem; font-size:.7rem; color:#d1d5db; }}
+.gc-pill b {{ color:#f97316; }}
+.gc-blurb {{ background:rgba(96,165,250,.06); border:1px solid rgba(96,165,250,.12); border-radius:12px; padding:.85rem 1rem; font-size:.81rem; color:#cbd5e1; line-height:1.5; margin-top:.6rem; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -614,18 +639,112 @@ elif st.session_state.page == "slate":
             st.rerun()
 
         for g in sorted_games:
-            away_r = f"#{g.away_stats.ranking} " if (g.away_stats and g.away_stats.ranking) else ""
-            home_r = f"#{g.home_stats.ranking} " if (g.home_stats and g.home_stats.ranking) else ""
-            away_rec = f" ({g.away_stats.record})" if g.away_stats else ""
-            home_rec = f" ({g.home_stats.record})" if g.home_stats else ""
-            tip = g.game_time.strftime("%I:%M %p ET")
-            star = "⭐ " if (g.home_stats or g.away_stats) else " "
-            game_label = (
-                f"{star}{away_r}{g.away_team}{away_rec}   @   "
-                f"{home_r}{g.home_team}{home_rec}  ·  {tip}"
-            )
+            info = fetch_scoreboard_game_info(g.game_id) if hasattr(g, 'game_id') else {}
+            home_info = info.get("home", {})
+            away_info = info.get("away", {})
+
+            # Fallback team data from DB game object
+            away_name  = away_info.get("name") or g.away_team
+            home_name  = home_info.get("name") or g.home_team
+            away_logo  = away_info.get("logo", "")
+            home_logo  = home_info.get("logo", "")
+            away_rank  = away_info.get("rank") or (g.away_stats.ranking if g.away_stats else None)
+            home_rank  = home_info.get("rank") or (g.home_stats.ranking if g.home_stats else None)
+            away_rec   = away_info.get("record") or (g.away_stats.record if g.away_stats else "")
+            home_rec   = home_info.get("record") or (g.home_stats.record if g.home_stats else "")
+            venue      = info.get("venue", "")
+            spread     = info.get("spread", "")
+            ou         = info.get("ou", "")
+            tip        = g.game_time.strftime("%I:%M %p ET")
+
+            # Stat leaders — ESPN box score of last game
+            away_espn_id = None
+            home_espn_id = None
+            for name, eid in TEAM_ESPN_IDS.items():
+                if any(w in g.away_team for w in name.split()[:2]):
+                    away_espn_id = eid
+                if any(w in g.home_team for w in name.split()[:2]):
+                    home_espn_id = eid
+
+            @st.cache_data(ttl=3600)
+            def _get_leaders(espn_id, tname):
+                return fetch_team_stat_leaders(espn_id, tname) if espn_id else {}
+
+            away_leaders = _get_leaders(away_espn_id, g.away_team)
+            home_leaders = _get_leaders(home_espn_id, g.home_team)
+
+            def _leader_pills(leaders: dict) -> str:
+                pts = leaders.get('pts', {})
+                reb = leaders.get('reb', {})
+                ast = leaders.get('ast', {})
+                return (
+                    f'<span class="gc-pill"><b>PTS</b> {pts.get("name","—")} {pts.get("value","—")}</span>'
+                    f'<span class="gc-pill"><b>REB</b> {reb.get("name","—")} {reb.get("value","—")}</span>'
+                    f'<span class="gc-pill"><b>AST</b> {ast.get("name","—")} {ast.get("value","—")}</span>'
+                ) if leaders else '<span class="gc-pill">Stats N/A</span>'
+
+            # Game preview blurb
+            away_oe = g.away_stats.offensive_efficiency if g.away_stats else None
+            home_de = g.home_stats.defensive_efficiency if g.home_stats else None
+            away_de = g.away_stats.defensive_efficiency if g.away_stats else None
+            home_oe = g.home_stats.offensive_efficiency if g.home_stats else None
+            if away_oe and home_de:
+                if away_oe > home_de:
+                    blurb = (f"{g.away_team.split()[0]} brings the firepower (OE {away_oe:.0f}) "
+                             f"to a {g.home_team.split()[0]} defense rated {home_de:.0f}. "
+                             f"Expect an up-tempo offensive showcase.")
+                else:
+                    blurb = (f"{g.home_team.split()[0]}'s stout defense (DE {home_de:.0f}) "
+                             f"should slow {g.away_team.split()[0]}'s attack (OE {away_oe:.0f}). "
+                             f"Look for a low-scoring grind.")
+            elif home_oe and away_de:
+                if home_oe > away_de:
+                    blurb = (f"{g.home_team.split()[0]} (OE {home_oe:.0f}) has a "
+                             f"distinct offensive edge at home. {g.away_team.split()[0]} must "
+                             f"control tempo to stay competitive.")
+                else:
+                    blurb = (f"{g.away_team.split()[0]}'s defense (DE {away_de:.0f}) clamps "
+                             f"{g.home_team.split()[0]}'s attack (OE {home_oe:.0f}). "
+                             f"Points will be at a premium.")
+            else:
+                blurb = (f"Tipping off at {tip} — check back once odds sharpen "
+                         f"for a full breakdown.")
+
+            rank_badge  = lambda r: f'<div class="gc-rank">#{r} AP</div>' if r else ""
+            logo_tag    = lambda logo, name: (f'<img src="{logo}" width="60" height="60" '
+                                              f'style="object-fit:contain" alt="{name}">') if logo else (
+                                              f'<div style="width:60px;height:60px;background:#1a2236;border-radius:8px;"></div>')
+            spread_line = f'<div class="gc-spread">📊 {spread}  {ou}</div>' if spread or ou else ""
+
+            st.markdown(f"""
+<div class="game-card">
+  <div class="gc-team">
+    {logo_tag(away_logo, away_name)}
+    {rank_badge(away_rank)}
+    <div class="gc-tname">{away_name}</div>
+    <div class="gc-rec">{away_rec}</div>
+    <div class="gc-label">AWAY</div>
+    <div class="gc-leaders">{_leader_pills(away_leaders)}</div>
+  </div>
+  <div class="gc-vs">@</div>
+  <div class="gc-team">
+    {logo_tag(home_logo, home_name)}
+    {rank_badge(home_rank)}
+    <div class="gc-tname">{home_name}</div>
+    <div class="gc-rec">{home_rec}</div>
+    <div class="gc-label">HOME</div>
+    <div class="gc-leaders">{_leader_pills(home_leaders)}</div>
+  </div>
+  <div class="gc-mid">
+    <div style="font-size:.75rem;color:#fbbf24;font-weight:800">{tip}</div>
+    {f'<div class="gc-venue">🏟️ {venue}</div>' if venue else ''}
+    {spread_line}
+  </div>
+  <div class="gc-blurb">💬 {blurb}</div>
+</div>""", unsafe_allow_html=True)
+
             checked = st.session_state.game_checks.get(g.game_id, False)
-            new_val = st.checkbox(game_label, value=checked, key=f"chk_{g.game_id}")
+            new_val = st.checkbox(f"Select {away_name} vs {home_name}", value=checked, key=f"chk_{g.game_id}")
             if new_val != checked:
                 st.session_state.game_checks[g.game_id] = new_val
 
