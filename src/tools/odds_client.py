@@ -151,7 +151,9 @@ def fetch_live_rankings() -> dict[str, int]:
             for entry in poll.get("ranks", []):
                 rank = entry.get("current", 0)
                 team = entry.get("team", {})
-                name = team.get("displayName") or team.get("name", "")
+                loc = team.get("location", "")
+                nickname = team.get("name", "")
+                name = f"{loc} {nickname}".strip()
                 if name and rank:
                     rankings[name.lower()] = rank
         print(f"  [Rankings] {len(rankings)} AP Top 25 teams from ESPN.")

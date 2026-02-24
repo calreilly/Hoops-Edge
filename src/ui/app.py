@@ -680,13 +680,20 @@ elif st.session_state.page == "slate":
             st.session_state.game_checks = {}
 
         # Select All / Clear All row
-        sa_col, ca_col, _ = st.columns([1, 1, 6])
+        sa_col, ca_col, ranked_col, _ = st.columns([1, 1, 1.5, 4.5])
         if sa_col.button("☑ Select All"):
             for g in sorted_games:
                 st.session_state.game_checks[g.game_id] = True
             st.rerun()
         if ca_col.button("☐ Clear All"):
             st.session_state.game_checks = {}
+            st.rerun()
+        if ranked_col.button("🏆 Select Ranked Only"):
+            st.session_state.game_checks = {}
+            for g in sorted_games:
+                has_rank = (g.home_stats and g.home_stats.ranking) or (g.away_stats and g.away_stats.ranking)
+                if has_rank:
+                    st.session_state.game_checks[g.game_id] = True
             st.rerun()
 
         for g in sorted_games:
