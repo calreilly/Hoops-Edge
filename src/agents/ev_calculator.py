@@ -189,26 +189,49 @@ async def _analyze_game_all_markets(
     return [r for r in results if r is not None]
 
 
-async def analyze_full_slate(games: list[Game], max_games: int = 8) -> DailySlate:
+async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlate:
     """
-    Analyze all games concurrently — all 4 markets per game run in parallel.
-    max_games caps the slate to control cost (default: 8 games).
+    Fully concurrent analysis: all games AND all markets run in parallel.
+    max_games caps slate size to control API cost (default: 5 games).
     """
-    import asyncio as _asyncio
     from datetime import date
 
-    # Cap to top N games by tip-off time
+    # Cap and sort by tip-off time
     games = sorted(games, key=lambda g: g.game_time)[:max_games]
-    all_recs: list[BetRecommendation] = []
+    print(f"  Analyzing {len(games)} games (all markets in parallel)...\n")
 
-    print(f"  Analyzing {len(games)} games (4 markets each) concurrently...\n")
+    # Run ALL game-market combos concurrently
+    async def analyze_one(game: Game, bet_type: BetType, side: BetSide):
+        try:
+            rec = await analyze_game_market(game, bet_type, side)
+            return rec
+        except Exception as e:
+            print(f"  [Warning] Skipped {game.away_team} @ {game.home_team} "
+                  f"{bet_type.value}/{side.value}: {e}")
+            return None
 
-    for i, game in enumerate(games, 1):
-        print(f"  [{i}/{len(games)}] {game.away_team} @ {game.home_team}...", end=" ", flush=True)
-        recs = await _analyze_game_all_markets(game)
-        all_recs.extend(recs)
-        recommended = [r for r in recs if r.is_recommended]
-        print(f"✅ {len(recommended)} +EV found" if recommended else "❌ no edge")
+    markets = [
+        (BetType.SPREAD, BetSide.HOME),
+        (BetType.SPREAD, BetSide.AWAY),
+        (BetType.TOTAL, BetSide.OVER),
+        (BetType.TOTAL, BetSide.UNDER),
+    ]
+
+    tasks = [
+        analyze_one(game, bt, s)
+        for game in games
+        for bt, s in markets
+    ]
+
+    results = await asyncio.gather(*tasks)
+    all_recs = [r for r in results if r is not None]
+
+    # Print per-game summary
+    for game in games:
+        game_recs = [r for r in all_recs if r.game_id == game.game_id]
+        ev_bets = [r for r in game_recs if r.is_recommended]
+        status = f"✅ {len(ev_bets)} +EV" if ev_bets else "❌ no edge"
+        print(f"  {game.away_team} @ {game.home_team}: {status}")
 
     total_units = sum(r.recommended_units for r in all_recs if r.is_recommended)
 
@@ -218,4 +241,5 @@ async def analyze_full_slate(games: list[Game], max_games: int = 8) -> DailySlat
         bets=all_recs,
         total_units_at_risk=total_units,
     )
+
 
