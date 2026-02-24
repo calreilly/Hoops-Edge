@@ -143,7 +143,9 @@ st.markdown(f"**{datetime.now().strftime('%A, %B %d %Y')}** &nbsp;·&nbsp; FanDu
             unsafe_allow_html=True)
 st.divider()
 
-tab_picks, tab_pending, tab_history = st.tabs(["📋 Today's Picks", "⏳ Pending Bets", "📊 History & Bankroll"])
+tab_picks, tab_pending, tab_history, tab_search = st.tabs([
+    "📋 Today's Picks", "⏳ Pending Bets", "📊 History & Bankroll", "🔍 Game Search"
+])
 
 
 # ── TAB 1: Today's Picks ───────────────────────────────────────────────────────
@@ -156,9 +158,11 @@ with tab_picks:
     if run_btn:
         st.session_state.slate = None
         st.session_state.slate_error = None
+        st.session_state.all_games = None
         with st.spinner(f"🔄 Fetching live FanDuel odds and analyzing top {max_games} games..."):
             try:
                 games = get_live_games(ledger)
+                st.session_state.all_games = games  # cache full list for search tab
                 slate = run_async(analyze_full_slate(games, max_games=max_games))
                 st.session_state.slate = slate
             except Exception as e:
@@ -291,3 +295,112 @@ with tab_history:
                     "EV": f"{b['expected_value']:+.1%}",
                 })
             st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+# ── TAB 4: Game Search ─────────────────────────────────────────────────────────
+with tab_search:
+    st.markdown("### 🔍 Game Search")
+    st.markdown("Search by team name, conference, or any keyword to see live FanDuel odds.")
+
+    # Initialize chat history
+    if "search_messages" not in st.session_state:
+        st.session_state.search_messages = []
+    if "all_games" not in st.session_state:
+        st.session_state.all_games = None
+
+    # Display past chat messages
+    for msg in st.session_state.search_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"], unsafe_allow_html=True)
+
+    # Chat input
+    query = st.chat_input("Search a team, conference, or phrase… e.g. 'UConn', 'Big East', 'Kansas'")
+
+    if query:
+        # Echo user message
+        st.session_state.search_messages.append({"role": "user", "content": query})
+        with st.chat_message("user"):
+            st.markdown(query)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Searching live slate..."):
+
+                # Fetch games if not already cached
+                if st.session_state.all_games is None:
+                    try:
+                        st.session_state.all_games = get_live_games(ledger)
+                    except Exception as e:
+                        err = f"⚠️ Couldn't fetch live games: {e}"
+                        st.error(err)
+                        st.session_state.search_messages.append({"role": "assistant", "content": err})
+                        st.stop()
+
+                all_games = st.session_state.all_games
+                q = query.lower().strip()
+
+                # Filter games: match team names, conference, or game_id
+                matches = []
+                for g in all_games:
+                    searchable = " ".join(filter(None, [
+                        g.home_team, g.away_team,
+                        g.home_stats.conference if g.home_stats else "",
+                        g.away_stats.conference if g.away_stats else "",
+                        g.game_id,
+                    ])).lower()
+                    if q in searchable:
+                        matches.append(g)
+
+                if not matches:
+                    reply = f"❌ No games found matching **\"{query}\"** on today's FanDuel slate."
+                    st.markdown(reply)
+                    st.session_state.search_messages.append({"role": "assistant", "content": reply})
+                else:
+                    reply_lines = [f"Found **{len(matches)} game(s)** matching **\"{query}\"**:\n"]
+                    st.markdown(reply_lines[0])
+
+                    for g in matches:
+                        tip = g.game_time.strftime("%I:%M %p ET") if g.game_time else ""
+
+                        # Build odds summary
+                        spread_line = ""
+                        if g.home_odds and g.away_odds:
+                            spread_line = (
+                                f"Spread: {g.home_team} {g.home_odds.line:+.1f} "
+                                f"({'%+d' % g.home_odds.american_odds}) / "
+                                f"{g.away_team} {g.away_odds.line:+.1f} "
+                                f"({'%+d' % g.away_odds.american_odds})"
+                            )
+
+                        total_line = ""
+                        if g.total_over_odds and g.total_under_odds:
+                            total_line = (
+                                f"Total: O/U {g.total_over_odds.line} "
+                                f"(O {'%+d' % g.total_over_odds.american_odds} / "
+                                f"U {'%+d' % g.total_under_odds.american_odds})"
+                            )
+
+                        conf_tag = ""
+                        if g.home_stats and g.home_stats.conference:
+                            conf_tag = f" · {g.home_stats.conference}"
+
+                        card_md = f"""
+<div class="bet-card" style="border-left-color:#5b8dee">
+<h4 style="margin:0 0 0.3rem 0">
+  {g.away_team} <span style="color:#888">@</span> {g.home_team}
+  <span style="font-size:0.75rem; color:#888; font-weight:400; margin-left:8px">{tip}{conf_tag}</span>
+</h4>
+<p style="margin:0.2rem 0; color:#ccc; font-size:0.9rem">📊 {spread_line}</p>
+<p style="margin:0.2rem 0; color:#ccc; font-size:0.9rem">🎯 {total_line}</p>
+</div>"""
+                        st.markdown(card_md, unsafe_allow_html=True)
+                        reply_lines.append(f"• {g.away_team} @ {g.home_team} — {spread_line} | {total_line}")
+
+                    full_reply = "\n".join(reply_lines)
+                    st.session_state.search_messages.append({"role": "assistant", "content": full_reply})
+
+    # Clear chat button
+    if st.session_state.search_messages:
+        if st.button("🗑 Clear Search History", key="clear_search"):
+            st.session_state.search_messages = []
+            st.rerun()
+
