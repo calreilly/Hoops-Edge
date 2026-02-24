@@ -417,86 +417,104 @@ if st.session_state.page == "home":
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "slate":
     st.markdown('<div class="page-title">📋 Today\'s Slate</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Load live FanDuel lines, select the games you want, then run EV analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Load live FanDuel lines, check the games you want, then run EV analysis</div>', unsafe_allow_html=True)
 
-    dry_run = st.checkbox("Dry run (don't save bets to DB)", value=False)
-    col_load, col_reset = st.columns([1, 4])
-    with col_load:
-        if st.button("📥 Load Today's Games", type="primary"):
-            with st.spinner("Fetching live FanDuel odds + AP rankings..."):
-                try:
-                    games = get_live_games(ledger)
-                    st.session_state.all_games = games
-                    st.session_state.slate = None
-                    st.session_state.selected_ids = []
-                    st.toast(f"✅ Loaded {len(games)} games!", icon="🏀")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    if st.button("📥 Load Today's Games", type="primary"):
+        with st.spinner("Fetching live FanDuel odds + AP rankings..."):
+            try:
+                games = get_live_games(ledger)
+                st.session_state.all_games = games
+                st.session_state.slate = None
+                st.session_state.selected_ids = []
+                st.toast(f"✅ Loaded {len(games)} games!", icon="🏀")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
 
     if st.session_state.all_games:
         all_games = st.session_state.all_games
         POWER = {"Big East","Big 12","SEC","ACC","Big Ten","Pac-12"}
 
         def win_pct(r):
-            try: w,l = r.split("-"); t=int(w)+int(l); return int(w)/t if t else 0
+            try: w, l = r.split("-"); t = int(w)+int(l); return int(w)/t if t else 0
             except: return 0
 
         def intrigue(g):
             s = 0
-            for st_ in [g.home_stats, g.away_stats]:
-                if st_:
-                    if st_.ranking: s += 10
-                    if win_pct(st_.record) > 0.65: s += 5
-                    if st_.conference in POWER: s += 3
+            for s_ in [g.home_stats, g.away_stats]:
+                if s_:
+                    if s_.ranking: s += 10
+                    if win_pct(s_.record) > 0.65: s += 5
+                    if s_.conference in POWER: s += 3
                     s += 2
             return s
 
-        def label(g):
-            pieces = []
-            for stats, name in [(g.away_stats, g.away_team), (g.home_stats, g.home_team)]:
-                rank_tag = f"#{stats.ranking} " if (stats and stats.ranking) else ""
-                rec_tag  = f" ({stats.record})" if stats else ""
-                pieces.append(f"{rank_tag}{name}{rec_tag}")
-            tip = g.game_time.strftime("%I:%M %p ET")
-            star = "⭐ " if (g.home_stats or g.away_stats) else ""
-            return f"{star}{pieces[0]}  @  {pieces[1]}  ·  {tip}"
-
         sorted_games = sorted(all_games, key=intrigue, reverse=True)
-        labels = {g.game_id: label(g) for g in sorted_games}
         id_map = {g.game_id: g for g in all_games}
-
         ranked_n = sum(1 for g in all_games if
                        (g.home_stats and g.home_stats.ranking) or
                        (g.away_stats and g.away_stats.ranking))
 
-        st.markdown(f"""<div class="glass-card" style="margin-top:1rem;padding:1rem 1.4rem">
-          <div style="font-size:.8rem;color:{COLORS['muted']}; margin-bottom:.5rem">
-            {len(all_games)} games available  ·  {ranked_n} ranked matchups  ·
-            ⭐ = stats in DB  ·  #N = AP rank  ·  sorted by intrigue
-          </div>""", unsafe_allow_html=True)
+        st.markdown("")
+        st.markdown(
+            f"""<div style="font-size:.82rem;color:{COLORS['muted']};margin-bottom:.8rem">
+            {len(all_games)} games · {ranked_n} ranked matchups · 
+            ⭐ = stats in DB · #N = AP rank · sorted by intrigue
+            </div>""", unsafe_allow_html=True)
 
-        selected_ids = st.multiselect(
-            "Select the games you want to bet on:",
-            options=list(labels.keys()),
-            format_func=lambda gid: labels[gid],
-            default=[s for s in st.session_state.selected_ids if s in labels],
-            placeholder="Choose one or more matchups...",
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.session_state.selected_ids = selected_ids
+        # ── Single-click checkboxes (no double-click required) ─────────────────────────
+        # Persist checked state in session
+        if "game_checks" not in st.session_state:
+            st.session_state.game_checks = {}
 
-        if selected_ids:
-            if st.button(f"▶ Analyze {len(selected_ids)} Selected Game{'s' if len(selected_ids)!=1 else ''}",
-                         type="primary"):
-                chosen = [id_map[gid] for gid in selected_ids]
+        # Select All / Clear All row
+        sa_col, ca_col, _ = st.columns([1, 1, 6])
+        if sa_col.button("☑ Select All"):
+            for g in sorted_games:
+                st.session_state.game_checks[g.game_id] = True
+            st.rerun()
+        if ca_col.button("☐ Clear All"):
+            st.session_state.game_checks = {}
+            st.rerun()
+
+        for g in sorted_games:
+            away_r = f"#{g.away_stats.ranking} " if (g.away_stats and g.away_stats.ranking) else ""
+            home_r = f"#{g.home_stats.ranking} " if (g.home_stats and g.home_stats.ranking) else ""
+            away_rec = f" ({g.away_stats.record})" if g.away_stats else ""
+            home_rec = f" ({g.home_stats.record})" if g.home_stats else ""
+            tip = g.game_time.strftime("%I:%M %p ET")
+            star = "⭐ " if (g.home_stats or g.away_stats) else " "
+            game_label = (
+                f"{star}{away_r}{g.away_team}{away_rec}   @   "
+                f"{home_r}{g.home_team}{home_rec}  ·  {tip}"
+            )
+            checked = st.session_state.game_checks.get(g.game_id, False)
+            new_val = st.checkbox(game_label, value=checked, key=f"chk_{g.game_id}")
+            if new_val != checked:
+                st.session_state.game_checks[g.game_id] = new_val
+
+        selected_ids = [gid for gid, v in st.session_state.game_checks.items() if v]
+        n_sel = len(selected_ids)
+
+        st.markdown("")
+        if n_sel > 0:
+            if st.button(
+                f"▶ Analyze {n_sel} Selected Game{'s' if n_sel != 1 else ''}",
+                type="primary",
+            ):
+                chosen = [id_map[gid] for gid in selected_ids if gid in id_map]
                 with st.spinner(f"🤖 Running EV analysis on {len(chosen)} game(s)..."):
                     try:
                         slate = run_async(analyze_full_slate(chosen, max_games=len(chosen)))
                         st.session_state.slate = slate
+                        st.session_state.slate_error = None
                         st.session_state.page = "picks"
                         st.rerun()
                     except Exception as e:
+                        st.session_state.slate_error = str(e)
                         st.error(str(e))
+        else:
+            st.info("↑ Check the games you want to analyze")
     else:
         st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2.5rem">
           <div style="font-size:3rem">🏀</div>
@@ -511,15 +529,13 @@ elif st.session_state.page == "slate":
 elif st.session_state.page == "picks":
     st.markdown('<div class="page-title">📊 Picks & Analysis</div>', unsafe_allow_html=True)
 
-    dry_run = st.session_state.get("dry_run_setting", False)
-
     if st.session_state.slate_error:
         st.error(f"Analysis error: {st.session_state.slate_error}")
     elif st.session_state.slate is None:
         st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2.5rem">
           <div style="font-size:3rem">⚡</div>
           <div style="font-size:1.1rem;font-weight:600;margin:.5rem 0 .3rem">No analysis yet</div>
-          <div style="color:{COLORS['muted']}">Go to <b>Today's Slate</b>, select games, and click Analyze</div>
+          <div style="color:{COLORS['muted']}">Go to <b>Today's Slate</b>, check your games, and click Analyze</div>
         </div>""", unsafe_allow_html=True)
         if st.button("← Go to Slate"):
             st.session_state.page = "slate"
@@ -528,8 +544,8 @@ elif st.session_state.page == "picks":
         slate = st.session_state.slate
         recommended = [b for b in slate.bets if b.is_recommended]
 
-        # Summary bar
-        c1,c2,c3 = st.columns(3)
+        # ─ Summary bar ────────────────────────────────────────────────────────
+        c1, c2, c3 = st.columns(3)
         c1.metric("Games Analyzed", slate.games_analyzed)
         c2.metric("+EV Bets Found", len(recommended))
         c3.metric("Units at Risk", f"{slate.total_units_at_risk:.2f}u")
@@ -542,55 +558,76 @@ elif st.session_state.page == "picks":
               <div style="color:{COLORS['muted']}">No bets cleared the +3.5% EV threshold. Sit on your hands.</div>
             </div>""", unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="page-sub">{len(recommended)} bet(s) passed the +EV threshold · click to expand reasoning</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="page-sub">{len(recommended)} bet(s) passed +EV threshold '  # noqa
+                '&nbsp;·&nbsp; <b style="color:#22c55e">📌 Place Bet</b> to add to pending '  # noqa
+                '&nbsp;·&nbsp; <b style="color:#ef4444">✖ Skip</b> to dismiss</div>',
+                unsafe_allow_html=True,
+            )
+
+            # Track which bets have been placed / skipped in this session
+            if "placed_bets" not in st.session_state:
+                st.session_state.placed_bets = set()
+            if "skipped_bets" not in st.session_state:
+                st.session_state.skipped_bets = set()
+
             for rec in recommended:
                 ev = rec.ev_analysis.expected_value
                 line_str = f" {rec.line:+.1f}" if rec.line else ""
                 tip = rec.game_time.strftime("%I:%M %p ET") if rec.game_time else ""
-                bet_type_label = rec.bet_type.value.upper()
-                side_label = rec.side.value.upper()
-                bet_key = rec.game_id + rec.bet_type.value + rec.side.value
+                bet_key = f"{rec.game_id}_{rec.bet_type.value}_{rec.side.value}"
 
-                st.markdown(f"""
-<div class="{card_class(ev)}">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem">
-  <div>
-    <div style="font-size:1rem;font-weight:800">{rec.away_team} <span style="color:{COLORS['muted']}">@</span> {rec.home_team}</div>
-    <div style="font-size:.8rem;color:{COLORS['muted']};margin-top:2px">{tip}</div>
-  </div>
-  <div style="text-align:right">
-    {ev_badge(ev)}
-    &nbsp;<span style="font-size:.8rem;color:{COLORS['muted']}">Kelly: <b style="color:{COLORS['text']}">{rec.recommended_units:.2f}u</b></span>
-  </div>
-</div>
-<div style="margin-top:.7rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-  <span class="badge badge-orange">{bet_type_label}</span>
-  <span class="badge badge-blue">{side_label}{line_str}</span>
-  <span style="color:{COLORS['text']};font-weight:700">{'%+d' % rec.american_odds}</span>
-</div>
-<div style="margin-top:.8rem;font-size:.88rem;color:{COLORS['text2']}">💬 {rec.summary}</div>
-</div>
-""", unsafe_allow_html=True)
+                already_placed = bet_key in st.session_state.placed_bets
+                already_skipped = bet_key in st.session_state.skipped_bets
 
-                with st.expander("🧠 Chain-of-Thought Reasoning"):
+                # ─ Card: all pure Streamlit, no HTML wrapper above the buttons ───
+                left, right = st.columns([5, 2])
+                with left:
+                    game_line = (
+                        f"**{rec.away_team}** @ **{rec.home_team}**"
+                        f"\u2003— `{rec.bet_type.value.upper()} {rec.side.value.upper()}{line_str}`"
+                        f" {'%+d' % rec.american_odds}"
+                    )
+                    st.markdown(game_line)
+                    st.caption(
+                        f"{tip} · Kelly: **{rec.recommended_units:.2f}u** · {ev_badge(ev)}",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(f"*{rec.summary}*")
+
+                with right:
+                    if already_placed:
+                        st.success("Placed ✓")
+                    elif already_skipped:
+                        st.warning("Skipped")
+                    else:
+                        p_col, s_col = st.columns(2)
+                        if p_col.button(
+                            "📌 Place",
+                            key=f"place_{bet_key}",
+                            type="primary",
+                            use_container_width=True,
+                        ):
+                            bid = ledger.save_recommendation(rec)
+                            ledger.approve_bet(bid)
+                            st.session_state.placed_bets.add(bet_key)
+                            st.rerun()
+                        if s_col.button(
+                            "✖ Skip",
+                            key=f"skip_{bet_key}",
+                            use_container_width=True,
+                        ):
+                            st.session_state.skipped_bets.add(bet_key)
+                            st.rerun()
+
+                with st.expander("🧠 Reasoning"):
                     for i, step in enumerate(rec.ev_analysis.reasoning_steps, 1):
                         st.markdown(f"**{i}.** {step}")
                     cc = st.columns(4)
                     cc[0].metric("Win Prob", f"{rec.ev_analysis.projected_win_probability:.1%}")
-                    cc[1].metric("Implied", f"{rec.ev_analysis.implied_probability:.1%}")
-                    cc[2].metric("EV", f"{rec.ev_analysis.expected_value:+.1%}")
-                    cc[3].metric("Confidence", f"{rec.ev_analysis.confidence:.0%}")
-
-                a_col, r_col, _ = st.columns([1.2, 1, 4])
-                if a_col.button("📌 Place Bet", type="primary", key=f"a_{bet_key}",
-                                help="Save this bet to your pending list"):
-                    bid = ledger.save_recommendation(rec)
-                    ledger.approve_bet(bid)
-                    st.success(f"Bet placed! ID: `{bid[:8]}`  →  Check Pending Bets")
-                    st.rerun()
-                if r_col.button("✖ Skip", key=f"r_{bet_key}",
-                                help="Dismiss this pick without saving"):
-                    st.toast("Skipped.", icon="✖")
+                    cc[1].metric("Implied",  f"{rec.ev_analysis.implied_probability:.1%}")
+                    cc[2].metric("EV",       f"{rec.ev_analysis.expected_value:+.1%}")
+                    cc[3].metric("Conf.",    f"{rec.ev_analysis.confidence:.0%}")
 
                 st.markdown("---")
 
