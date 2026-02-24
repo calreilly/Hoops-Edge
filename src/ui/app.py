@@ -13,6 +13,10 @@ from datetime import datetime
 from src.db.storage import BetLedger
 from src.tools.odds_client import get_live_games
 from src.agents.ev_calculator import analyze_full_slate
+from src.tools.espn_client import (
+    fetch_team_summary, fetch_team_roster, fetch_team_schedule,
+    fetch_boxscore, fetch_player_stats, logo_url, TEAM_ESPN_IDS
+)
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -305,6 +309,7 @@ with st.sidebar:
     nav_btn("📊", "Picks & Analysis", "picks")
     nav_btn("⏳", "Pending Bets", "pending")
     nav_btn("📈", "Performance", "history")
+    nav_btn("🏀", "Teams", "teams")
     nav_btn("🔍", "Game Search", "search")
 
     st.markdown("---")
@@ -803,3 +808,222 @@ elif st.session_state.page == "search":
         if st.button("🗑 Clear Search History"):
             st.session_state.search_messages = []
             st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: TEAMS EXPLORER
+# ══════════════════════════════════════════════════════════════════════════════
+elif st.session_state.page == "teams":
+
+    # ─ Dialogs ────────────────────────────────────────────────────────────────
+    @st.dialog("📊 Player Stats", width="large")
+    def show_player(player_id: str, player_name: str):
+        with st.spinner(f"Loading {player_name}..."):
+            info = fetch_player_stats(player_id)
+        if not info:
+            st.warning("Could not load player data.")
+            return
+        c1, c2 = st.columns([1, 3])
+        with c1:
+            if info.get("headshot"):
+                st.image(info["headshot"], width=120)
+        with c2:
+            st.markdown(f"### {info['name']}")
+            st.markdown(f"""
+| | |
+|---|---|
+| **Position** | {info.get('position','—')} |
+| **Height** | {info.get('height','—')} |
+| **Weight** | {info.get('weight','—')} lbs |
+| **From** | {info.get('birthPlace') or info.get('college','—')} |
+""")
+        # Scouting report based on position
+        pos = info.get("position", "").upper()
+        traits = {
+            "PG": "🎯 Floor general. Look for playmaking, assist-to-turnover ratio, and pick-and-roll reads.",
+            "SG": "🎯 Shooting guard. Evaluate off-ball movement, catch-and-shoot efficiency, and two-way versatility.",
+            "SF": "🎯 Small forward. Assess wing defense, transition scoring, and positional rebounding.",
+            "PF": "🎯 Power forward. Focus on paint presence, screen quality, and mid-range/face-up ability.",
+            "C":  "🎯 Center. Evaluate rim protection, offensive rebounding, and pick-and-roll defense.",
+        }
+        st.markdown("---")
+        st.markdown(f"**Scouting Notes:** {traits.get(pos, 'Versatile player. Evaluate holistically across all facets.')}")
+
+    @st.dialog("📊 Box Score", width="large")
+    def show_boxscore(event_id: str, game_name: str):
+        st.markdown(f"### {game_name}")
+        with st.spinner("Loading box score..."):
+            bs = fetch_boxscore(event_id)
+        if not bs or not bs.get("teams"):
+            st.warning("Box score not available for this game.")
+            return
+        if bs.get("result"):
+            st.markdown(f"**Final:** {bs['result']}")
+        for team in bs["teams"]:
+            st.markdown(f"#### {team['team']}")
+            players = team.get("players", [])
+            if not players:
+                st.caption("No player data available.")
+                continue
+            labels = players[0].get("labels", [])
+            rows = []
+            for p in players:
+                row = {"Player": p["name"], "Pos": p.get("position", "")}
+                for lbl, val in zip(labels, p.get("stats", [])):
+                    row[lbl] = val
+                rows.append(row)
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    @st.dialog("🏀 Team Details", width="large")
+    def show_team(team_name: str, espn_id: int, db_ranking: int | None):
+        with st.spinner(f"Loading {team_name}..."):
+            summary  = fetch_team_summary(espn_id)
+            roster   = fetch_team_roster(espn_id)
+            schedule = fetch_team_schedule(espn_id)
+
+        # Header
+        h1, h2 = st.columns([1, 4])
+        with h1:
+            st.image(logo_url(espn_id), width=90)
+        with h2:
+            rank_str = f" · **#{db_ranking} AP**" if db_ranking else ""
+            st.markdown(f"## {summary.get('name', team_name)}{rank_str}")
+            rec = summary.get("record", "")
+            conf = ""
+            # Try DB for conference
+            all_stats = ledger.get_all_team_stats()
+            for s in all_stats:
+                if s.get("team_name", "").lower() in team_name.lower() or team_name.lower() in s.get("team_name", "").lower():
+                    conf = s.get("conference", "")
+                    break
+            st.markdown(f"`{rec}`  {conf}")
+
+        st.markdown("---")
+        t_roster, t_sched, t_facts = st.tabs(["Roster", "Schedule", "Facts"])
+
+        # ─ Roster tab ────────────────────────────────────────────────
+        with t_roster:
+            if not roster:
+                st.info("Roster not available.")
+            else:
+                cols = st.columns(3)
+                for i, p in enumerate(roster):
+                    with cols[i % 3]:
+                        headshot = p.get("headshot", "")
+                        pos_tag = p.get("position", "")
+                        year_tag = p.get("year", "")
+                        jersey  = p.get("jersey", "")
+                        card_html = f"""
+<div style="background:#1a2236;border:1px solid #1e2d45;border-radius:12px;
+            padding:.8rem;margin-bottom:.5rem;text-align:center;cursor:pointer">
+{f'<img src="{headshot}" style="width:60px;height:60px;border-radius:50%;object-fit:cover;margin-bottom:.4rem">' if headshot else '<div style="width:60px;height:60px;border-radius:50%;background:#2d4a6e;margin:0 auto .4rem;line-height:60px;font-size:1.2rem">👤</div>'}
+<div style="font-weight:700;font-size:.9rem">{p['name']}</div>
+<div style="font-size:.75rem;color:#6b7280">#{jersey} · {pos_tag} · {year_tag}</div>
+</div>"""
+                        st.markdown(card_html, unsafe_allow_html=True)
+                        if st.button("Stats & Report", key=f"player_{espn_id}_{p['id']}",
+                                     use_container_width=True):
+                            show_player(str(p["id"]), p["name"])
+
+        # ─ Schedule tab ───────────────────────────────────────────────
+        with t_sched:
+            if not schedule:
+                st.info("Schedule not available.")
+            else:
+                for game in schedule:
+                    date_str = game["date"][:10] if game["date"] else ""
+                    completed = game.get("completed", False)
+                    status    = game.get("status", "")
+                    if completed and game.get("home_score") and game.get("away_score"):
+                        score_str = f"**{game['away_score']} – {game['home_score']}**"
+                    elif not completed:
+                        score_str = f"*{status}*"
+                    else:
+                        score_str = status
+
+                    sc1, sc2, sc3 = st.columns([2, 3, 2])
+                    sc1.caption(date_str)
+                    sc2.markdown(f"{game['name']}    {score_str}")
+                    if completed:
+                        if sc3.button("📊 Box Score", key=f"bs_{game['event_id']}",
+                                       use_container_width=True):
+                            show_boxscore(str(game["event_id"]), game["name"])
+                    st.markdown("---")
+
+        # ─ Facts tab ──────────────────────────────────────────────────
+        with t_facts:
+            db_stats = None
+            for s in ledger.get_all_team_stats():
+                if s.get("team_name", "").lower() in team_name.lower() or team_name.lower() in s.get("team_name", "").lower():
+                    db_stats = s
+                    break
+
+            loc  = summary.get("location", "")
+            nick = summary.get("nickname", "")
+            st.markdown(f"**Location:** {loc}")
+            st.markdown(f"**Nickname:** {nick}")
+            st.markdown(f"**Record:** {summary.get('record', '—')}")
+            if db_stats:
+                st.markdown("---")
+                st.markdown("**Performance Metrics (from DB)**")
+                fm1, fm2, fm3, fm4 = st.columns(4)
+                fm1.metric("Off. Efficiency", f"{db_stats.get('offensive_efficiency', 0):.1f}")
+                fm2.metric("Def. Efficiency", f"{db_stats.get('defensive_efficiency', 0):.1f}")
+                fm3.metric("Pace",            f"{db_stats.get('pace', 0):.1f}")
+                fm4.metric("3PT Rate",        f"{db_stats.get('three_point_rate', 0):.1%}")
+                if db_stats.get('ats_record'):
+                    st.markdown(f"**ATS Record:** {db_stats['ats_record']}")
+
+    # ─ Teams Grid page body ──────────────────────────────────────────────
+    st.markdown('<div class="page-title">🏀 Teams Explorer</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Click any team to view roster, schedule, and facts powered by ESPN</div>', unsafe_allow_html=True)
+
+    # Build ranking map from live AP poll + DB
+    db_ranks: dict[str, int] = {}
+    for s in ledger.get_all_team_stats():
+        if s.get("ranking") and s.get("team_name"):
+            db_ranks[s["team_name"]] = s["ranking"]
+
+    # Sort: ranked first (by rank), then alphabetical
+    def sort_key(item):
+        name, _ = item
+        rank = db_ranks.get(name)
+        return (0, rank) if rank else (1, name)
+
+    sorted_teams = sorted(TEAM_ESPN_IDS.items(), key=sort_key)
+
+    # Filter bar
+    search_q = st.text_input("", placeholder="🔍 Search teams...", label_visibility="collapsed")
+    if search_q:
+        sorted_teams = [(n, i) for n, i in sorted_teams
+                        if search_q.lower() in n.lower()]
+
+    # Grid: 5 columns
+    GRID_COLS = 5
+    rows = [sorted_teams[i:i+GRID_COLS] for i in range(0, len(sorted_teams), GRID_COLS)]
+
+    for row in rows:
+        cols = st.columns(GRID_COLS)
+        for col, (team_name, espn_id) in zip(cols, row):
+            with col:
+                rank = db_ranks.get(team_name)
+                rank_badge = (
+                    f'<div style="position:absolute;top:8px;left:8px;background:#f97316;'
+                    f'color:white;font-size:.65rem;font-weight:900;padding:2px 7px;'
+                    f'border-radius:20px">#{rank}</div>'
+                ) if rank else ""
+
+                card_html = f"""
+<div style="position:relative;background:#111827;border:1px solid #1e2d45;
+            border-radius:14px;padding:1rem .8rem;text-align:center;
+            transition:border-color .2s;margin-bottom:.5rem">
+  {rank_badge}
+  <img src="{logo_url(espn_id)}" style="width:64px;height:64px;object-fit:contain"
+       onerror="this.style.display='none'">
+  <div style="font-size:.82rem;font-weight:700;margin-top:.5rem;line-height:1.2">
+    {team_name.split()[0]} {team_name.split()[1] if len(team_name.split()) > 1 else ''}
+  </div>
+</div>"""
+                st.markdown(card_html, unsafe_allow_html=True)
+                if st.button("View", key=f"team_{espn_id}", use_container_width=True):
+                    show_team(team_name, espn_id, rank)
