@@ -28,32 +28,23 @@ python -m src.main --seed
 
 Get a free Odds API key at [the-odds-api.com](https://the-odds-api.com) (500 req/month free).
 
-## CLI Commands
+## Usage
+
+Hoops Edge now features a full browser-based dashboard. To launch the application:
 
 ```bash
-# Analyze live FanDuel slate (default: 5 games)
-python -m src.main --slate
-
-# Limit games to control cost
-python -m src.main --slate --max-games 3
-
-# Preview without saving bets
-python -m src.main --slate --dry-run
-
-# View pending bets
-python -m src.main --bets
-
-# Approve / reject a pending bet
-python -m src.main --approve <bet-id-prefix>
-python -m src.main --reject  <bet-id-prefix>
-
-# Settle a bet after the game
-python -m src.main --settle <bet-id-prefix> win 1.15
-python -m src.main --settle <bet-id-prefix> loss -1.0
-
-# Check bankroll & record
-python -m src.main --bankroll
+# Start the Streamlit server
+streamlit run src/ui/app.py
 ```
+
+This will automatically open the UI in your browser at `http://localhost:8501`.
+
+### Dashboard Features
+* **Today's Slate:** Load live FanDuel odds and select games for the AI to analyze.
+* **Picks & Analysis:** Review the expected value (EV) calculations and the AI's Chain-of-Thought reasoning for every bet recommendation.
+* **Teams Explorer:** Deep-dive into any of the 362 Division 1 programs to view Live AP rankings, Rosters, Schedules, and comprehensive Scouting Reports.
+* **Pending Bets:** Track open positions and settle them once the games have concluded.
+* **Performance:** Monitor your all-time profit/loss, win/loss record, and adjust your starting Bankroll units and dollar-valuation configurations.
 
 ## Tech Stack
 
