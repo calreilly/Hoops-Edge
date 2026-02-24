@@ -68,10 +68,12 @@ class Game(BaseModel):
     home_team: str
     away_team: str
     game_time: datetime
-    home_odds: Optional[Odds] = None
-    away_odds: Optional[Odds] = None
+    home_odds: Optional[Odds] = None       # spread
+    away_odds: Optional[Odds] = None       # spread
     total_over_odds: Optional[Odds] = None
     total_under_odds: Optional[Odds] = None
+    home_ml: Optional[Odds] = None         # moneyline
+    away_ml: Optional[Odds] = None         # moneyline
     home_stats: Optional[TeamStats] = None
     away_stats: Optional[TeamStats] = None
     injury_notes: Optional[str] = Field(None, description="Plain-text summary of relevant injuries")

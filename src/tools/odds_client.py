@@ -208,6 +208,8 @@ def parse_odds_response(raw_games: list[dict], ledger: BetLedger) -> list[Game]:
             away_odds=away_spread,
             total_over_odds=over_odds,
             total_under_odds=under_odds,
+            home_ml=home_ml,
+            away_ml=away_ml,
             home_stats=home_stats,
             away_stats=away_stats,
             injury_notes="Live game — see ESPN for latest injury news.",

@@ -93,6 +93,10 @@ def build_game_prompt(game: Game, bet_type: BetType, side: BetSide) -> str:
         odds = game.total_over_odds
     elif bet_type == BetType.TOTAL and side == BetSide.UNDER:
         odds = game.total_under_odds
+    elif bet_type == BetType.MONEYLINE and side == BetSide.HOME:
+        odds = game.home_ml
+    elif bet_type == BetType.MONEYLINE and side == BetSide.AWAY:
+        odds = game.away_ml
 
     if odds is None:
         raise ValueError(f"No odds found for {bet_type} / {side}")
@@ -116,6 +120,25 @@ def build_game_prompt(game: Game, bet_type: BetType, side: BetSide) -> str:
             f"3PT Rate: {s.three_point_rate} | ATS: {s.ats_record}"
         )
 
+    # Full odds context so agent can reason about the market structure
+    spread_ctx = ""
+    if game.home_odds and game.away_odds:
+        spread_ctx = (f"Spread: {game.home_team} {game.home_odds.line:+.1f} "
+                      f"({'%+d' % game.home_odds.american_odds}) / "
+                      f"{game.away_team} {game.away_odds.line:+.1f} "
+                      f"({'%+d' % game.away_odds.american_odds})")
+
+    total_ctx = ""
+    if game.total_over_odds and game.total_under_odds:
+        total_ctx = (f"Total: O/U {game.total_over_odds.line} "
+                     f"(O {'%+d' % game.total_over_odds.american_odds} / "
+                     f"U {'%+d' % game.total_under_odds.american_odds})")
+
+    ml_ctx = ""
+    if game.home_ml and game.away_ml:
+        ml_ctx = (f"Moneyline: {game.home_team} {'%+d' % game.home_ml.american_odds} / "
+                  f"{game.away_team} {'%+d' % game.away_ml.american_odds}")
+
     return f"""
 ## Game: {game.away_team} @ {game.home_team}
 Game Time: {game.game_time.strftime('%A %b %d, %Y %I:%M %p')}
@@ -128,6 +151,11 @@ Line: {odds.line if odds.line else 'N/A'}
 American Odds (FanDuel): {odds.american_odds}
 Implied Probability: {odds.implied_probability:.1%}
 
+## All Available Lines (FanDuel context)
+{spread_ctx}
+{total_ctx}
+{ml_ctx}
+
 ## Team Stats
 {game.home_team} (HOME):
 {home_block}
@@ -139,7 +167,7 @@ Implied Probability: {odds.implied_probability:.1%}
 {game.injury_notes or 'No significant injury news available.'}
 
 ---
-Analyze this market. Follow the 5-step reasoning protocol. 
+Analyze this market. Follow the 5-step reasoning protocol.
 Output a BetRecommendation.
 """
 
@@ -206,6 +234,18 @@ def _select_markets(game: Game) -> list[tuple[BetType, BetSide]]:
         markets.append((BetType.TOTAL, BetSide.OVER))
     elif game.total_under_odds:
         markets.append((BetType.TOTAL, BetSide.UNDER))
+
+    # Moneyline: pick the underdog (higher American odds = more value potential)
+    # Favorites at -300 rarely have EV; underdogs at +150 might
+    if game.home_ml and game.away_ml:
+        if game.away_ml.american_odds >= game.home_ml.american_odds:
+            markets.append((BetType.MONEYLINE, BetSide.AWAY))
+        else:
+            markets.append((BetType.MONEYLINE, BetSide.HOME))
+    elif game.home_ml:
+        markets.append((BetType.MONEYLINE, BetSide.HOME))
+    elif game.away_ml:
+        markets.append((BetType.MONEYLINE, BetSide.AWAY))
 
     return markets
 
