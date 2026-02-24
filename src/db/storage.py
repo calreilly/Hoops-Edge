@@ -55,7 +55,9 @@ class BetLedger:
     """
 
     def __init__(self, db_path: str = "data/hoops_edge.db"):
-        self.db = sqlite_utils.Database(db_path)
+        import sqlite3
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.db = sqlite_utils.Database(conn)
         self._init_schema()
 
     def _init_schema(self):

@@ -707,12 +707,39 @@ elif st.session_state.page == "slate":
             if home_oe and away_de:
                 bullets.append(f"• <b>{home_name.split()[0]} Offense</b>: OE {home_oe:.0f} vs <b>{away_name.split()[0]} Defense</b>: DE {away_de:.0f}")
                 
-            if g.away_stats and g.home_stats and g.away_stats.pace and g.home_stats.pace:
-                avg_pace = (g.away_stats.pace + g.home_stats.pace) / 2
-                if avg_pace > 70:
-                    bullets.append(f"• <b>Pace</b>: Up-tempo showcase (~{avg_pace:.0f} poss)")
-                elif avg_pace < 66:
-                    bullets.append(f"• <b>Pace</b>: Low-scoring grind (~{avg_pace:.0f} poss)")
+            if g.away_stats and g.home_stats:
+                # Pace Matchup
+                if g.away_stats.pace and g.home_stats.pace:
+                    avg_pace = (g.away_stats.pace + g.home_stats.pace) / 2
+                    if avg_pace > 70:
+                        bullets.append(f"• <b>Pace</b>: Up-tempo showcase (~{avg_pace:.0f} poss)")
+                    elif avg_pace < 66:
+                        bullets.append(f"• <b>Pace</b>: Low-scoring grind (~{avg_pace:.0f} poss)")
+                
+                # ATS Records
+                away_ats = g.away_stats.ats_record
+                home_ats = g.home_stats.ats_record
+                if away_ats or home_ats:
+                    ats_str = "• <b>Against the Spread</b>: "
+                    if away_ats: ats_str += f"{away_name.split()[0]} ({away_ats})"
+                    if away_ats and home_ats: ats_str += " | "
+                    if home_ats: ats_str += f"{home_name.split()[0]} ({home_ats})"
+                    bullets.append(ats_str)
+                    
+                # 3-Point Rate
+                away_3pr = g.away_stats.three_point_rate
+                home_3pr = g.home_stats.three_point_rate
+                if away_3pr or home_3pr:
+                    thr_str = "• <b>3-Point Reliance</b>: "
+                    if away_3pr: 
+                        sz = "High" if away_3pr > 0.40 else ("Low" if away_3pr < 0.32 else "Avg")
+                        thr_str += f"{away_name.split()[0]} ({sz} {away_3pr*100:.0f}%)"
+                    if away_3pr and home_3pr: 
+                        thr_str += " | "
+                    if home_3pr: 
+                        sz = "High" if home_3pr > 0.40 else ("Low" if home_3pr < 0.32 else "Avg")
+                        thr_str += f"{home_name.split()[0]} ({sz} {home_3pr*100:.0f}%)"
+                    bullets.append(thr_str)
             
             if not bullets:
                 bullets.append(f"• Tipping off at {tip} — check back closer to tip for stats.")
