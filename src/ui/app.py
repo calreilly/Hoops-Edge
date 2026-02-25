@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 import asyncio
 import streamlit as st
+import json
 from datetime import datetime
 from typing import Optional
 
@@ -533,9 +534,11 @@ with st.sidebar:
     # Quick bankroll
     bankroll = ledger.get_bankroll()
     settled = list(ledger.db["bets"].rows_where("status = ?", ["settled"]))
-    wins   = sum(1 for b in settled if b["result"] == "win")
-    losses = sum(1 for b in settled if b["result"] == "loss")
-    total_pl = sum(b["profit_loss"] for b in settled if b["profit_loss"] is not None)
+    settled_parlays = list(ledger.db["parlays"].rows_where("status = ?", ["settled"]))
+    wins   = sum(1 for b in settled if b["result"] == "win") + sum(1 for p in settled_parlays if p["result"] == "win")
+    losses = sum(1 for b in settled if b["result"] == "loss") + sum(1 for p in settled_parlays if p["result"] == "loss")
+    total_pl = sum(b["profit_loss"] for b in settled if b["profit_loss"] is not None) + \
+               sum(p["profit_loss"] for p in settled_parlays if p["profit_loss"] is not None)
     pl_color = "#22c55e" if total_pl >= 0 else "#ef4444"
 
     st.markdown(f"""
@@ -558,6 +561,8 @@ with st.sidebar:
 if st.session_state.page == "home":
     today = datetime.now().strftime("%A, %B %d %Y")
     pending_bets = list(ledger.db["bets"].rows_where("status IN ('pending','approved')", []))
+    pending_parlays = ledger.get_pending_parlays()
+    total_pending = len(pending_bets) + len(pending_parlays)
     ev_bets = [b for b in pending_bets if b["status"] == "approved"]
     pl_sign = "+" if total_pl >= 0 else ""
 
@@ -576,7 +581,7 @@ if st.session_state.page == "home":
     stat_defs = [
         (c1, f"{bankroll['balance_units']:.0f}u", "Bankroll",  "linear-gradient(135deg,#ff6eb4,#ff9a5c)"),
         (c2, f"{wins}–{losses}",                 "Record",    "linear-gradient(135deg,#40e0d0,#60a5fa)"),
-        (c3, str(len(pending_bets)),              "Pending",   "linear-gradient(135deg,#b48aff,#ff6eb4)"),
+        (c3, str(total_pending),                 "Pending",   "linear-gradient(135deg,#b48aff,#ff6eb4)"),
         (c4, f"{pl_sign}{total_pl:.1f}u",         "P / L",     f"linear-gradient(135deg,{pv_color},{pv_color}aa)"),
     ]
     for col, val, lbl, grad in stat_defs:
@@ -593,16 +598,18 @@ if st.session_state.page == "home":
 
     # ── FULL-CARD CLICKABLE BUTTONS ──────────────────────────────
     # Use st.button with multi-line label — styled via CSS into full card
-    # 2-row layout
+    # 2-row layout with 3 cols each + 1 row with 1 col for Parlays
     row1 = st.columns(3)
     row2 = st.columns(3)
+    row3 = st.columns([1,2,1]) # centering the parlay button
     actions = [
         (row1[0], "home_slate",   "slate",   "📋", "Today's Slate",   "Live lines → Pick games → Find edges"),
         (row1[1], "home_picks",   "picks",   "📊", "Picks & Analysis","See all AI bet suggestions"),
-        (row1[2], "home_pending", "pending", "⏳", "Pending Bets",   f"{len(pending_bets)} bet(s) awaiting action"),
+        (row1[2], "home_pending", "pending", "⏳", "Pending Bets",   f"{total_pending} ticket(s) awaiting action"),
         (row2[0], "home_search",  "search",  "🔍", "Game Search",    "Odds by team or conference"),
         (row2[1], "home_teams",   "teams",   "🏀", "Teams Explorer", "Roster, schedule & scouting reports"),
         (row2[2], "home_history", "history", "📈", "Performance",    "Bankroll history & settled bets"),
+        (row3[1], "home_parlays", "parlays", "🔗", "Parlay Builder", "Combine approved bets for bigger payouts"),
     ]
     for col, key, pg, icon, title, desc in actions:
         with col:
@@ -992,25 +999,29 @@ elif st.session_state.page == "pending":
     st.markdown('<div class="page-sub">Manage and settle your active positions</div>', unsafe_allow_html=True)
 
     pending = list(ledger.db["bets"].rows_where("status IN ('pending','approved')", []))
+    pending_parlays = ledger.get_pending_parlays()
 
     # ── Danger zone: clear all ────────────────────────────────────────────────
-    if pending:
+    if pending or pending_parlays:
         with st.expander("⚠️ Danger zone"):
-            st.warning("This will permanently delete ALL pending and approved bets.")
-            if st.button("🗑 Clear All Pending Bets", type="primary"):
+            st.warning("This will permanently delete ALL pending and approved bets and parlays.")
+            if st.button("🗑 Clear All Pending", type="primary"):
                 ledger.db.execute("DELETE FROM bets WHERE status IN ('pending','approved')")
+                ledger.db.execute("DELETE FROM parlays WHERE status = 'pending'")
                 ledger.db.conn.commit()
-                st.success("All pending bets cleared.")
+                st.success("All pending cleared.")
                 st.rerun()
 
-    if not pending:
+    if not pending and not pending_parlays:
         st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2.5rem">
           <div style="font-size:3rem">✅</div>
           <div style="font-weight:700;margin:.4rem 0 .2rem">All clear</div>
-          <div style="color:{COLORS['muted']}">No pending bets. Head to <b>Today's Slate</b> to generate picks.</div>
+          <div style="color:{COLORS['muted']}">No pending bets or parlays. Head to <b>Today's Slate</b> to generate picks.</div>
         </div>""", unsafe_allow_html=True)
     else:
-        for bet in pending:
+        if pending:
+            st.markdown(f'<div class="indie-section-hdr">Single Bets</div>', unsafe_allow_html=True)
+            for bet in pending:
             icon  = "✅" if bet["status"] == "approved" else "🕐"
             with st.expander(
                 f"{icon} {bet['away_team']} @ {bet['home_team']}  ·  "
@@ -1044,6 +1055,39 @@ elif st.session_state.page == "pending":
                     st.success(f"Settled as {result.upper()}!")
                     st.rerun()
 
+        if pending_parlays:
+            st.markdown(f'<div class="indie-section-hdr" style="margin-top:2rem">Parlays</div>', unsafe_allow_html=True)
+            for p in pending_parlays:
+                leg_ids = json.loads(p["leg_ids"])
+                with st.expander(
+                    f"🔗 {len(leg_ids)}-Leg Parlay  ·  Odds ({p['american_odds']:+d})  ·  {p['recommended_units']:.2f}u"
+                ):
+                    st.markdown(f"**ID:** `{p['id'][:8]}` &nbsp;&nbsp; **Status:** `{p['status'].upper()}`")
+                    st.markdown("**Legs:**")
+                    for lid in leg_ids:
+                        leg_row = list(ledger.db["bets"].rows_where("id = ?", [lid]))
+                        if leg_row:
+                            leg = leg_row[0]
+                            st.markdown(f"- {leg['away_team']} @ {leg['home_team']} | {leg['bet_type'].upper()} {leg['side'].upper()}")
+                            
+                    action_cols = st.columns([1, 1, 1, 3])
+                    if action_cols[0].button("🗑 Remove", key=f"pdel_{p['id'][:8]}", help="Delete this parlay"):
+                        ledger.db.execute("DELETE FROM parlays WHERE id = ?", [p["id"]])
+                        ledger.db.conn.commit()
+                        st.success("Parlay removed.")
+                        st.rerun()
+
+                    st.markdown("---")
+                    st.markdown("**Settle this parlay:**")
+                    psc1, psc2, psc3 = st.columns([2, 2, 1])
+                    result = psc1.selectbox("Result", ["win","loss","push"], key=f"pres_{p['id'][:8]}")
+                    pl     = psc2.number_input("P/L (units)", value=float(p["recommended_units"]),
+                                               step=0.01, key=f"ppl_{p['id'][:8]}")
+                    if psc3.button("Settle", key=f"pst_{p['id'][:8]}"):
+                        ledger.settle_parlay(p["id"], result, pl if result != "loss" else -abs(pl))
+                        st.success(f"Settled as {result.upper()}!")
+                        st.rerun()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: PERFORMANCE
@@ -1073,10 +1117,11 @@ elif st.session_state.page == "history":
 
     st.markdown("")
     
-    if settled:
+    settled_all = settled + settled_parlays
+    if settled_all:
         st.markdown('<div class="page-title" style="font-size:1.1rem">📊 Bankroll Trend</div>', unsafe_allow_html=True)
         # Sort chronologically by created date
-        sorted_settled = sorted(settled, key=lambda x: x.get("created_at", ""))
+        sorted_settled = sorted(settled_all, key=lambda x: x.get("created_at", ""))
         cum_pl = 0.0
         history_data = [{"Bet": 0, "Cumulative P/L (Units)": 0.0}]
         
@@ -1090,7 +1135,7 @@ elif st.session_state.page == "history":
 
     st.markdown('<div class="page-title" style="font-size:1.1rem">📜 Settled Bets</div>', unsafe_allow_html=True)
 
-    if not settled:
+    if not settled_all:
         st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2rem">
           <div style="color:{COLORS['muted']}">No settled bets yet. Approve some picks and settle them after games.</div>
         </div>""", unsafe_allow_html=True)
@@ -1105,9 +1150,99 @@ elif st.session_state.page == "history":
                 "Units": f"{b['recommended_units']:.2f}u",
                 "Result": (b["result"] or "").upper(),
                 "P/L": f"{b['profit_loss']:+.2f}u" if b["profit_loss"] is not None else "",
+                "Time": b.get("created_at", "")
             })
+        for p in settled_parlays:
+            rows.append({
+                "Game": f"Parlay ({len(json.loads(p['leg_ids']))} legs)",
+                "Market": "PARLAY",
+                "Odds": f"{'%+d' % p['american_odds']}",
+                "EV": "-",
+                "Units": f"{p['recommended_units']:.2f}u",
+                "Result": (p["result"] or "").upper(),
+                "P/L": f"{p['profit_loss']:+.2f}u" if p["profit_loss"] is not None else "",
+                "Time": p.get("created_at", "")
+            })
+        
+        rows.sort(key=lambda x: x.get("Time", ""), reverse=True)
+        for r in rows:
+            if "Time" in r:
+                del r["Time"]
+        
         st.dataframe(rows, use_container_width=True, hide_index=True)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: PARLAYS
+# ══════════════════════════════════════════════════════════════════════════════
+elif st.session_state.page == "parlays":
+    back_btn()
+    st.markdown('<div class="page-title">🔗 Parlay Builder</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Combine approved bets for bigger payouts</div>', unsafe_allow_html=True)
+
+    approved = ledger.get_approved_bets()
+    if not approved:
+        st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2.5rem">
+          <div style="font-size:3rem">🔗</div>
+          <div style="font-size:1.1rem;font-weight:600;margin:.5rem 0 .3rem">No approved bets available</div>
+          <div style="color:{COLORS['muted']}">Approve some picks from the Pending Bets tab first</div>
+        </div>""", unsafe_allow_html=True)
+    else:
+        if "parlay_selections" not in st.session_state:
+            st.session_state.parlay_selections = {}
+
+        st.markdown(f'<div class="indie-section-hdr" style="margin-top:1rem">Select Legs</div>', unsafe_allow_html=True)
+        
+        selected_legs = []
+        for b in approved:
+            checked = st.session_state.parlay_selections.get(b["id"], False)
+            title = f"{b['away_team']} @ {b['home_team']} | {b['bet_type'].upper()} {b['side'].upper()} ({b['american_odds']:+d})"
+            new_val = st.checkbox(title, value=checked, key=f"pchk_{b['id']}")
+            if new_val != checked:
+                st.session_state.parlay_selections[b["id"]] = new_val
+                st.rerun()
+            if new_val:
+                selected_legs.append(b)
+
+        if len(selected_legs) > 1:
+            st.markdown("---")
+            st.markdown(f'<div class="indie-section-hdr">Ticket ({len(selected_legs)} legs)</div>', unsafe_allow_html=True)
+            
+            # Mathematical compound odds
+            compound_decimal = 1.0
+            for leg in selected_legs:
+                odds = leg["american_odds"]
+                if odds > 0:
+                    dec = (odds / 100.0) + 1.0
+                else:
+                    dec = (100.0 / abs(odds)) + 1.0
+                compound_decimal *= dec
+                
+            if compound_decimal >= 2.0:
+                parlay_american = int((compound_decimal - 1.0) * 100)
+            else:
+                parlay_american = int(-100.0 / (compound_decimal - 1.0))
+                
+            implied_prob = 1.0 / compound_decimal
+            
+            st.markdown(f"""<div class="glass-card" style="padding:1.5rem">
+              <div style="display:flex;justify-content:space-between">
+                <span><b>Combined Odds:</b> <span class="badge badge-green">{parlay_american:+d}</span></span>
+                <span><b>Implied Prob:</b> {implied_prob:.1%}</span>
+              </div>
+            </div>""", unsafe_allow_html=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            units = st.number_input("Parlay Units", min_value=0.1, value=1.0, step=0.1)
+            
+            if st.button("🔒 Lock in Parlay", type="primary", use_container_width=True):
+                leg_ids = [leg["id"] for leg in selected_legs]
+                ledger.save_parlay(leg_ids, parlay_american, implied_prob, units)
+                st.session_state.parlay_selections = {}
+                st.success("Parlay locked in!")
+                st.rerun()
+        elif len(selected_legs) == 1:
+            st.info("Select at least 2 legs to build a parlay.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: GAME SEARCH

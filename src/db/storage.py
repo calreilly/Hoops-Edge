@@ -112,6 +112,18 @@ class BetLedger:
             "last_interaction": str,
         }, pk="team_name", if_not_exists=True)
 
+        self.db["parlays"].create({
+            "id": str,
+            "leg_ids": str,          # JSON list of bet IDs
+            "american_odds": int,
+            "implied_prob": float,
+            "recommended_units": float,
+            "status": str,           # 'pending', 'settled'
+            "result": str,           # 'win', 'loss', 'push', null
+            "profit_loss": float,
+            "created_at": str,
+        }, pk="id", if_not_exists=True)
+
         # Migration: add ranking column to pre-existing tables that lack it
         existing_cols = {col.name for col in self.db["team_stats"].columns}
         if "ranking" not in existing_cols:
@@ -185,6 +197,41 @@ class BetLedger:
 
     def get_bankroll(self) -> dict:
         return list(self.db["bankroll"].rows)[0]
+
+    # ── Parlays ───────────────────────────────────────────────────────────────
+
+    def save_parlay(self, leg_ids: list[str], american_odds: int, implied_prob: float, units: float) -> str:
+        """Persist a new parlay to the database."""
+        parlay_id = str(uuid.uuid4())
+        self.db["parlays"].insert({
+            "id": parlay_id,
+            "leg_ids": json.dumps(leg_ids),
+            "american_odds": american_odds,
+            "implied_prob": implied_prob,
+            "recommended_units": units,
+            "status": "pending",
+            "result": None,
+            "profit_loss": None,
+            "created_at": datetime.utcnow().isoformat(),
+        })
+        return parlay_id
+
+    def settle_parlay(self, parlay_id: str, result: str, profit_loss: float):
+        """Settle a parlay and update the bankroll."""
+        self.db["parlays"].update(parlay_id, {
+            "status": "settled",
+            "result": result,
+            "profit_loss": profit_loss,
+        })
+        row = list(self.db["bankroll"].rows)[0]
+        new_balance = row["balance_units"] + profit_loss
+        self.db["bankroll"].update(1, {
+            "balance_units": new_balance,
+            "updated_at": datetime.utcnow().isoformat(),
+        })
+
+    def get_pending_parlays(self) -> list:
+        return list(self.db["parlays"].rows_where("status = ?", ["pending"]))
 
     # ── Team Stats ────────────────────────────────────────────────────────────
 
