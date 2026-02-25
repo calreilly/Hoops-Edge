@@ -112,7 +112,33 @@ html, body, [class*="css"] {{
 [data-testid="stSidebar"] {{
     background: linear-gradient(180deg, #0d1424 0%, #0a1020 100%) !important;
     border-right: 1px solid {COLORS["border"]};
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }}
+[data-testid="collapsedControl"] {{
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: {COLORS["surface"]} !important;
+    border: 1px solid {COLORS["border"]} !important;
+    border-radius: 50% !important;
+    width: 36px !important;
+    height: 36px !important;
+    margin-top: 10px !important;
+    margin-left: 10px !important;
+    transition: transform 0.2s ease, background 0.2s ease !important;
+    z-index: 999999 !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+}}
+[data-testid="collapsedControl"]:hover {{
+    background: {COLORS["surface2"]} !important;
+    transform: scale(1.1) !important;
+}}
+[data-testid="collapsedControl"] svg {{
+    fill: {COLORS["accent"]} !important;
+    width: 18px !important;
+    height: 18px !important;
+}}
+
 [data-testid="stSidebar"] .stButton > button {{
     width: 100%;
     background: transparent;
