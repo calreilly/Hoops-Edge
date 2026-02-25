@@ -674,51 +674,44 @@ elif st.session_state.page == "slate":
             ⭐ = stats in DB · #N = AP rank · sorted by intrigue
             </div>""", unsafe_allow_html=True)
 
-        # ── Single-click checkboxes (no double-click required) ─────────────────────────
-        # Persist checked state in session
         if "game_checks" not in st.session_state:
             st.session_state.game_checks = {}
-            
+        if "slate_view_idx" not in st.session_state:
+            st.session_state.slate_view_idx = 0
+
         selected_ids = [gid for gid, v in st.session_state.game_checks.items() if v]
         n_sel = len(selected_ids)
 
-        # Select All / Clear All row
-        sa_col, ca_col, ranked_col, az_col = st.columns([1, 1, 1.5, 4.5])
-        if sa_col.button("☑ Select All"):
-            for g in sorted_games:
-                st.session_state.game_checks[g.game_id] = True
-            st.rerun()
-        if ca_col.button("☐ Clear All"):
-            st.session_state.game_checks = {}
-            st.rerun()
-        if ranked_col.button("🏆 Select Ranked Only"):
-            st.session_state.game_checks = {}
-            for g in sorted_games:
-                has_rank = (g.home_stats and g.home_stats.ranking) or (g.away_stats and g.away_stats.ranking)
-                if has_rank:
-                    st.session_state.game_checks[g.game_id] = True
-            st.rerun()
-            
-        if n_sel > 0:
-            if az_col.button(
-                f"▶ Analyze {n_sel} Selected Game{'s' if n_sel != 1 else ''}",
-                type="primary",
-            ):
-                chosen = [id_map[gid] for gid in selected_ids if gid in id_map]
-                with st.spinner(f"🤖 Running EV analysis on {len(chosen)} game(s)..."):
-                    try:
-                        slate = run_async(analyze_full_slate(chosen, max_games=len(chosen)))
-                        st.session_state.slate = slate
-                        st.session_state.slate_error = None
-                        st.session_state.page = "picks"
-                        st.rerun()
-                    except Exception as e:
-                        st.session_state.slate_error = str(e)
-                        st.error(str(e))
-        else:
-            az_col.info("↑ Check the games you want to analyze")
+        # Top Control Row
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.markdown(f"**Selected {n_sel} game{'s' if n_sel != 1 else ''}** for analysis.")
+        with c2:
+            if n_sel > 0:
+                if st.button(f"▶ Analyze {n_sel} Game{'s' if n_sel != 1 else ''}", type="primary", use_container_width=True):
+                    chosen = [id_map[gid] for gid in selected_ids if gid in id_map]
+                    with st.spinner(f"🤖 Running EV analysis on {len(chosen)} game(s)..."):
+                        try:
+                            slate = run_async(analyze_full_slate(chosen, max_games=len(chosen)))
+                            st.session_state.slate = slate
+                            st.session_state.slate_error = None
+                            st.session_state.page = "picks"
+                            st.rerun()
+                        except Exception as e:
+                            st.session_state.slate_error = str(e)
+                            st.error(str(e))
 
-        for g in sorted_games:
+        st.markdown("---")
+
+        idx = st.session_state.slate_view_idx
+        if idx >= len(sorted_games):
+            st.success(f"You've reviewed all {len(sorted_games)} games! Click Analyze above to proceed.")
+            if st.button("↺ Start Over"):
+                st.session_state.slate_view_idx = 0
+                st.session_state.game_checks = {}
+                st.rerun()
+        else:
+            g = sorted_games[idx]
             # 1. Base team data
             away_name  = g.away_team
             home_name  = g.home_team
@@ -785,6 +778,7 @@ elif st.session_state.page == "slate":
             logo_tag_h   = f'<img src="{home_logo}" width="60" height="60" style="object-fit:contain" alt="{home_name}">' if home_logo else f'<div style="width:60px;height:60px;background:#1a2236;border-radius:8px;"></div>'
 
             html_card = f"""
+<div style="text-align:center;color:{COLORS['muted']};font-size:.85rem;margin-bottom:.5rem;">Game {idx+1} of {len(sorted_games)}</div>
 <div class="game-card">
 <div class="gc-team">
 {logo_tag_a}
@@ -811,10 +805,15 @@ elif st.session_state.page == "slate":
 """
             st.markdown(html_card, unsafe_allow_html=True)
 
-            checked = st.session_state.game_checks.get(g.game_id, False)
-            new_val = st.checkbox(f"Select {away_name} vs {home_name}", value=checked, key=f"chk_{g.game_id}")
-            if new_val != checked:
-                st.session_state.game_checks[g.game_id] = new_val
+            cd1, cd2 = st.columns(2)
+            if cd1.button(f"✖ Skip", key=f"skp_{g.game_id}", use_container_width=True):
+                st.session_state.slate_view_idx += 1
+                st.rerun()
+                
+            if cd2.button(f"🔥 Interested", key=f"int_{g.game_id}", type="primary", use_container_width=True):
+                st.session_state.game_checks[g.game_id] = True
+                st.session_state.slate_view_idx += 1
+                st.rerun()
 
         selected_ids = [gid for gid, v in st.session_state.game_checks.items() if v]
         n_sel = len(selected_ids)
@@ -1113,6 +1112,59 @@ elif st.session_state.page == "search":
     for msg in st.session_state.search_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"], unsafe_allow_html=True)
+
+    if not st.session_state.search_messages and st.session_state.all_games:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="page-title" style="font-size:1.1rem">🔥 Hot Games Today</div>', unsafe_allow_html=True)
+        
+        all_games = st.session_state.all_games
+        POWER = {"Big East","Big 12","SEC","ACC","Big Ten","Pac-12"}
+        def win_pct(r):
+            try: w, l = r.split("-"); t = int(w)+int(l); return int(w)/t if t else 0
+            except: return 0
+        def intrigue(g):
+            s = 0
+            for s_ in [g.home_stats, g.away_stats]:
+                if s_:
+                    if s_.ranking: s += 10
+                    if win_pct(s_.record) > 0.65: s += 5
+                    if s_.conference in POWER: s += 3
+                    s += 2
+            return s
+            
+        hot_games = sorted(all_games, key=intrigue, reverse=True)[:3]
+        
+        h1, h2, h3 = st.columns(3)
+        for col, g in zip([h1, h2, h3], hot_games):
+            with col:
+                h_rank = f"#{g.home_stats.ranking} " if g.home_stats and g.home_stats.ranking else ""
+                a_rank = f"#{g.away_stats.ranking} " if g.away_stats and g.away_stats.ranking else ""
+                tip = g.game_time.strftime("%I:%M %p ET")
+                spread = f"{g.home_team.split()[0]} {g.home_odds.line:+.1f}" if g.home_odds and g.home_odds.line else ""
+                
+                st.markdown(f"""
+                <div style="background:#111827;border:1px solid #1e2d45;border-radius:12px;padding:1rem;margin-bottom:.5rem;">
+                  <div style="font-size:.75rem;color:#fbbf24;font-weight:700;margin-bottom:.4rem">{tip}</div>
+                  <div style="font-weight:700;line-height:1.3;font-size:.95rem">
+                    <span style="color:#94a3b8;font-size:.8rem">{a_rank}</span>{g.away_team}<br>
+                    <span style="color:#64748b;font-size:.8rem">@</span><br>
+                    <span style="color:#94a3b8;font-size:.8rem">{h_rank}</span>{g.home_team}
+                  </div>
+                  <div style="font-size:.8rem;color:{COLORS['primary']};margin-top:.6rem;font-weight:800">
+                    {spread}
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button(f"Analyze", key=f"hot_{g.game_id}", use_container_width=True):
+                    with st.spinner("🤖 Running EV analysis..."):
+                        try:
+                            slate = run_async(analyze_full_slate([g], max_games=1))
+                            st.session_state.slate = slate
+                            st.session_state.slate_error = None
+                            st.session_state.page = "picks"
+                            st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
 
     query = st.chat_input("Search e.g. 'Kansas', 'Big East', 'Auburn'...")
 
