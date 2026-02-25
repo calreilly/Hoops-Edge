@@ -1150,7 +1150,7 @@ elif st.session_state.page == "search":
                     <span style="color:#64748b;font-size:.8rem">@</span><br>
                     <span style="color:#94a3b8;font-size:.8rem">{h_rank}</span>{g.home_team}
                   </div>
-                  <div style="font-size:.8rem;color:{COLORS['primary']};margin-top:.6rem;font-weight:800">
+                  <div style="font-size:.8rem;color:{COLORS['green']};margin-top:.6rem;font-weight:800">
                     {spread}
                   </div>
                 </div>
