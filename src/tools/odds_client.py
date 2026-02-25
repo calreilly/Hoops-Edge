@@ -210,6 +210,11 @@ def parse_odds_response(
         game_time = datetime.fromisoformat(
             raw["commence_time"].replace("Z", "+00:00")
         ).astimezone(ET)  # convert UTC → Eastern
+        
+        # Strictly filter to only include games played today
+        if game_time.date() != datetime.now(ET).date():
+            continue
+            
         game_id = raw["id"]
 
         # Initialize odds slots

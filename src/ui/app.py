@@ -815,7 +815,7 @@ elif st.session_state.page == "slate":
                 home_rank  = g.home_stats.ranking if g.home_stats else None
                 away_rec   = g.away_stats.record if g.away_stats else ""
                 home_rec   = g.home_stats.record if g.home_stats else ""
-                tip        = g.game_time.strftime("%I:%M %p ET") if g.game_time else "TBD"
+                tip        = g.game_time.strftime("%b %d, %I:%M %p ET") if g.game_time else "TBD"
                 
                 away_espn_id = get_espn_team_id(away_name) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in away_name for w in n.split()[:2])), None)
                 home_espn_id = get_espn_team_id(home_name) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in home_name for w in n.split()[:2])), None)
@@ -923,7 +923,7 @@ elif st.session_state.page == "picks":
             for rec in recommended:
                 ev = rec.ev_analysis.expected_value
                 line_str = f" {rec.line:+.1f}" if rec.line else ""
-                tip = rec.game_time.strftime("%I:%M %p ET") if rec.game_time else ""
+                tip = rec.game_time.strftime("%b %d, %I:%M %p ET") if rec.game_time else ""
                 bet_key = f"{rec.game_id}_{rec.bet_type.value}_{rec.side.value}"
 
                 already_placed = bet_key in st.session_state.placed_bets
@@ -1329,7 +1329,7 @@ elif st.session_state.page == "search":
                 with col:
                     h_rank = f"#{g.home_stats.ranking} " if g.home_stats and g.home_stats.ranking else ""
                     a_rank = f"#{g.away_stats.ranking} " if g.away_stats and g.away_stats.ranking else ""
-                    tip = g.game_time.strftime("%I:%M %p ET")
+                    tip = g.game_time.strftime("%b %d, %I:%M %p ET")
                     spread = f"{g.home_team.split()[0]} {g.home_odds.line:+.1f}" if g.home_odds and g.home_odds.line else ""
                     
                     st.markdown(f"""
@@ -1389,7 +1389,7 @@ elif st.session_state.page == "search":
                     st.markdown(f"Found **{len(matches)} game(s)** matching **\"{query}\"**:")
                     lines = []
                     for g in matches:
-                        tip   = g.game_time.strftime("%I:%M %p ET")
+                        tip   = g.game_time.strftime("%b %d, %I:%M %p ET")
                         sp    = (f"Spread: {g.home_team} {g.home_odds.line:+.1f} "
                                  f"({'%+d' % g.home_odds.american_odds}) / "
                                  f"{g.away_team} {g.away_odds.line:+.1f} "
