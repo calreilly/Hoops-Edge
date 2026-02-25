@@ -1113,58 +1113,68 @@ elif st.session_state.page == "search":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"], unsafe_allow_html=True)
 
-    if not st.session_state.search_messages and st.session_state.all_games:
+    if not st.session_state.search_messages:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="page-title" style="font-size:1.1rem">🔥 Hot Games Today</div>', unsafe_allow_html=True)
         
-        all_games = st.session_state.all_games
-        POWER = {"Big East","Big 12","SEC","ACC","Big Ten","Pac-12"}
-        def win_pct(r):
-            try: w, l = r.split("-"); t = int(w)+int(l); return int(w)/t if t else 0
-            except: return 0
-        def intrigue(g):
-            s = 0
-            for s_ in [g.home_stats, g.away_stats]:
-                if s_:
-                    if s_.ranking: s += 10
-                    if win_pct(s_.record) > 0.65: s += 5
-                    if s_.conference in POWER: s += 3
-                    s += 2
-            return s
-            
-        hot_games = sorted(all_games, key=intrigue, reverse=True)[:3]
-        
-        h1, h2, h3 = st.columns(3)
-        for col, g in zip([h1, h2, h3], hot_games):
-            with col:
-                h_rank = f"#{g.home_stats.ranking} " if g.home_stats and g.home_stats.ranking else ""
-                a_rank = f"#{g.away_stats.ranking} " if g.away_stats and g.away_stats.ranking else ""
-                tip = g.game_time.strftime("%I:%M %p ET")
-                spread = f"{g.home_team.split()[0]} {g.home_odds.line:+.1f}" if g.home_odds and g.home_odds.line else ""
+        if not st.session_state.all_games:
+            st.info("Live odds and rankings aren't loaded into memory yet.")
+            if st.button("📥 Load Live Games", type="primary"):
+                with st.spinner("Fetching live FanDuel odds + AP rankings..."):
+                    try:
+                        st.session_state.all_games = get_live_games(ledger)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        else:
+            all_games = st.session_state.all_games
+            POWER = {"Big East","Big 12","SEC","ACC","Big Ten","Pac-12"}
+            def win_pct(r):
+                try: w, l = r.split("-"); t = int(w)+int(l); return int(w)/t if t else 0
+                except: return 0
+            def intrigue(g):
+                s = 0
+                for s_ in [g.home_stats, g.away_stats]:
+                    if s_:
+                        if s_.ranking: s += 10
+                        if win_pct(s_.record) > 0.65: s += 5
+                        if s_.conference in POWER: s += 3
+                        s += 2
+                return s
                 
-                st.markdown(f"""
-                <div style="background:#111827;border:1px solid #1e2d45;border-radius:12px;padding:1rem;margin-bottom:.5rem;">
-                  <div style="font-size:.75rem;color:#fbbf24;font-weight:700;margin-bottom:.4rem">{tip}</div>
-                  <div style="font-weight:700;line-height:1.3;font-size:.95rem">
-                    <span style="color:#94a3b8;font-size:.8rem">{a_rank}</span>{g.away_team}<br>
-                    <span style="color:#64748b;font-size:.8rem">@</span><br>
-                    <span style="color:#94a3b8;font-size:.8rem">{h_rank}</span>{g.home_team}
-                  </div>
-                  <div style="font-size:.8rem;color:{COLORS['green']};margin-top:.6rem;font-weight:800">
-                    {spread}
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button(f"Analyze", key=f"hot_{g.game_id}", use_container_width=True):
-                    with st.spinner("🤖 Running EV analysis..."):
-                        try:
-                            slate = run_async(analyze_full_slate([g], max_games=1))
-                            st.session_state.slate = slate
-                            st.session_state.slate_error = None
-                            st.session_state.page = "picks"
-                            st.rerun()
-                        except Exception as e:
-                            st.error(str(e))
+            hot_games = sorted(all_games, key=intrigue, reverse=True)[:3]
+            
+            h1, h2, h3 = st.columns(3)
+            for col, g in zip([h1, h2, h3], hot_games):
+                with col:
+                    h_rank = f"#{g.home_stats.ranking} " if g.home_stats and g.home_stats.ranking else ""
+                    a_rank = f"#{g.away_stats.ranking} " if g.away_stats and g.away_stats.ranking else ""
+                    tip = g.game_time.strftime("%I:%M %p ET")
+                    spread = f"{g.home_team.split()[0]} {g.home_odds.line:+.1f}" if g.home_odds and g.home_odds.line else ""
+                    
+                    st.markdown(f"""
+                    <div style="background:#111827;border:1px solid #1e2d45;border-radius:12px;padding:1rem;margin-bottom:.5rem;">
+                      <div style="font-size:.75rem;color:#fbbf24;font-weight:700;margin-bottom:.4rem">{tip}</div>
+                      <div style="font-weight:700;line-height:1.3;font-size:.95rem">
+                        <span style="color:#94a3b8;font-size:.8rem">{a_rank}</span>{g.away_team}<br>
+                        <span style="color:#64748b;font-size:.8rem">@</span><br>
+                        <span style="color:#94a3b8;font-size:.8rem">{h_rank}</span>{g.home_team}
+                      </div>
+                      <div style="font-size:.8rem;color:{COLORS['green']};margin-top:.6rem;font-weight:800">
+                        {spread}
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button(f"Analyze", key=f"hot_{g.game_id}", use_container_width=True):
+                        with st.spinner("🤖 Running EV analysis..."):
+                            try:
+                                slate = run_async(analyze_full_slate([g], max_games=1))
+                                st.session_state.slate = slate
+                                st.session_state.slate_error = None
+                                st.session_state.page = "picks"
+                                st.rerun()
+                            except Exception as e:
+                                st.error(str(e))
 
     query = st.chat_input("Search e.g. 'Kansas', 'Big East', 'Auburn'...")
 
