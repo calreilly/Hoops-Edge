@@ -646,6 +646,7 @@ elif st.session_state.page == "slate":
     if st.session_state.all_games:
         all_games = st.session_state.all_games
         POWER = {"Big East","Big 12","SEC","ACC","Big Ten","Pac-12"}
+        user_interests = ledger.get_interested_teams()
 
         def win_pct(r):
             try: w, l = r.split("-"); t = int(w)+int(l); return int(w)/t if t else 0
@@ -659,6 +660,11 @@ elif st.session_state.page == "slate":
                     if win_pct(s_.record) > 0.65: s += 5
                     if s_.conference in POWER: s += 3
                     s += 2
+            
+            # Boost if the user has shown interest previously
+            s += (user_interests.get(g.home_team, 0) * 3)
+            s += (user_interests.get(g.away_team, 0) * 3)
+            
             return s
 
         sorted_games = sorted(all_games, key=intrigue, reverse=True)
@@ -811,6 +817,8 @@ elif st.session_state.page == "slate":
                 st.rerun()
                 
             if cd2.button(f"🔥 Interested", key=f"int_{g.game_id}", type="primary", use_container_width=True):
+                ledger.record_interest(g.home_team)
+                ledger.record_interest(g.away_team)
                 st.session_state.game_checks[g.game_id] = True
                 st.session_state.slate_view_idx += 1
                 st.rerun()
@@ -1129,9 +1137,12 @@ elif st.session_state.page == "search":
         else:
             all_games = st.session_state.all_games
             POWER = {"Big East","Big 12","SEC","ACC","Big Ten","Pac-12"}
+            user_interests = ledger.get_interested_teams()
+            
             def win_pct(r):
                 try: w, l = r.split("-"); t = int(w)+int(l); return int(w)/t if t else 0
                 except: return 0
+                
             def intrigue(g):
                 s = 0
                 for s_ in [g.home_stats, g.away_stats]:
@@ -1140,6 +1151,11 @@ elif st.session_state.page == "search":
                         if win_pct(s_.record) > 0.65: s += 5
                         if s_.conference in POWER: s += 3
                         s += 2
+                        
+                # Boost if the user has shown interest previously
+                s += (user_interests.get(g.home_team, 0) * 3)
+                s += (user_interests.get(g.away_team, 0) * 3)
+                
                 return s
                 
             hot_games = sorted(all_games, key=intrigue, reverse=True)[:3]

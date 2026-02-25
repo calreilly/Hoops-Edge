@@ -106,6 +106,12 @@ class BetLedger:
             "last_updated": str,
         }, pk="team_id", if_not_exists=True)
 
+        self.db["user_interests"].create({
+            "team_name": str,
+            "interest_score": int,
+            "last_interaction": str,
+        }, pk="team_name", if_not_exists=True)
+
         # Migration: add ranking column to pre-existing tables that lack it
         existing_cols = {col.name for col in self.db["team_stats"].columns}
         if "ranking" not in existing_cols:
@@ -196,6 +202,22 @@ class BetLedger:
 
     def get_all_team_stats(self) -> list:
         return list(self.db["team_stats"].rows)
+
+    # ── User Preferences ──────────────────────────────────────────────────────
+
+    def record_interest(self, team_name: str, score_delta: int = 1):
+        """Boost a team's intrigue score when a user interacts with them."""
+        rows = list(self.db["user_interests"].rows_where("team_name = ?", [team_name]))
+        current_score = rows[0]["interest_score"] if rows else 0
+        self.db["user_interests"].upsert({
+            "team_name": team_name,
+            "interest_score": current_score + score_delta,
+            "last_interaction": datetime.utcnow().isoformat()
+        }, pk="team_name")
+
+    def get_interested_teams(self) -> dict[str, int]:
+        """Return a map of team names to their accrued interest scores."""
+        return {row["team_name"]: row["interest_score"] for row in self.db["user_interests"].rows}
 
 
 # ─── LanceDB News/Injury Store ─────────────────────────────────────────────────
