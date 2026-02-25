@@ -1065,6 +1065,22 @@ elif st.session_state.page == "history":
                 st.rerun()
 
     st.markdown("")
+    
+    if settled:
+        st.markdown('<div class="page-title" style="font-size:1.1rem">📊 Bankroll Trend</div>', unsafe_allow_html=True)
+        # Sort chronologically by created date
+        sorted_settled = sorted(settled, key=lambda x: x.get("created_at", ""))
+        cum_pl = 0.0
+        history_data = [{"Bet": 0, "Cumulative P/L (Units)": 0.0}]
+        
+        for i, b in enumerate(sorted_settled, 1):
+            if b.get("profit_loss") is not None:
+                cum_pl += b["profit_loss"]
+            history_data.append({"Bet": i, "Cumulative P/L (Units)": cum_pl})
+            
+        st.line_chart(history_data, x="Bet", y="Cumulative P/L (Units)", use_container_width=True, color="#22c55e")
+        st.markdown("<br>", unsafe_allow_html=True)
+
     st.markdown('<div class="page-title" style="font-size:1.1rem">📜 Settled Bets</div>', unsafe_allow_html=True)
 
     if not settled:
@@ -1521,25 +1537,43 @@ elif st.session_state.page == "teams":
     st.markdown('<div class="page-title">🏀 Teams Explorer</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Click any team to view roster, schedule, and facts powered by ESPN</div>', unsafe_allow_html=True)
 
-    # Build ranking map from live AP poll + DB
-    db_ranks: dict[str, int] = {}
-    for s in ledger.get_all_team_stats():
-        if s.get("ranking") and s.get("team_name"):
-            db_ranks[s["team_name"]] = s["ranking"]
-
     # Pull dynamic list of 362 Div 1 teams
     all_teams_map = get_all_espn_teams()
+    
+    # Store all db stats for sorting lookups
+    db_stats = {s.get("team_name", ""): s for s in ledger.get_all_team_stats()}
+    db_ranks: dict[str, int] = {name: s.get("ranking") for name, s in db_stats.items() if s.get("ranking")}
 
-    # Sort: ranked first (by rank), then alphabetical
+    # Filter bar
+    f1, f2 = st.columns([3, 1])
+    search_q = f1.text_input("", placeholder="🔍 Search teams...", label_visibility="collapsed")
+    sort_by = f2.selectbox("Sort by", ["AP Rank", "Alphabetical", "Offensive Efficiency", "Defensive Efficiency", "Pace"], label_visibility="collapsed")
+
+    # Sort logic
     def sort_key(item):
         name, _ = item
-        rank = db_ranks.get(name)
+        s = db_stats.get(name, {})
+        rank = s.get("ranking")
+        
+        if sort_by == "AP Rank":
+            return (0, rank) if rank else (1, name)
+        elif sort_by == "Alphabetical":
+            return name
+        elif sort_by == "Offensive Efficiency":
+            val = float(s.get("offensive_efficiency") or 0)
+            return (0, -val) if val else (1, name)
+        elif sort_by == "Defensive Efficiency":
+            val = float(s.get("defensive_efficiency") or 0)
+            # We want lowest defensive efficiency first, but prioritize teams that have stats (val > 0)
+            return (0, val) if val else (1, name)
+        elif sort_by == "Pace":
+            val = float(s.get("pace") or 0)
+            return (0, -val) if val else (1, name)
+            
         return (0, rank) if rank else (1, name)
 
     sorted_teams = sorted(all_teams_map.items(), key=sort_key)
 
-    # Filter bar
-    search_q = st.text_input("", placeholder="🔍 Search teams...", label_visibility="collapsed")
     if search_q:
         sorted_teams = [(n, i) for n, i in sorted_teams
                         if search_q.lower() in n.lower()]
