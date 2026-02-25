@@ -280,11 +280,11 @@ html, body, [class*="css"] {{
 ::-webkit-scrollbar-thumb {{ background: {COLORS["border"]}; border-radius: 3px; }}
 
 /* ── Hide streamlit branding ── */
-#MainMenu, footer { visibility: hidden; }
-header[data-testid="stHeader"] { background: transparent !important; }
+#MainMenu, footer {{ visibility: hidden; }}
+header[data-testid="stHeader"] {{ background: transparent !important; }}
 
 /* ── Sidebar Toggle Buttons (Collapse / Expand) ── */
-button[kind="headerNoPadding"] {
+button[kind="headerNoPadding"] {{
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -299,17 +299,17 @@ button[kind="headerNoPadding"] {
     z-index: 999999 !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
     color: {COLORS["accent"]} !important;
-}
-button[kind="headerNoPadding"]:hover {
+}}
+button[kind="headerNoPadding"]:hover {{
     background: {COLORS["surface2"]} !important;
     transform: scale(1.1) !important;
-}
-button[kind="headerNoPadding"] svg {
+}}
+button[kind="headerNoPadding"] svg {{
     fill: {COLORS["accent"]} !important;
     color: {COLORS["accent"]} !important;
     width: 18px !important;
     height: 18px !important;
-}
+}}
 
 /* ── Metric cards ── */
 [data-testid="metric-container"] {{
