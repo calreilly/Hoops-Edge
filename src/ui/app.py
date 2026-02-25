@@ -737,26 +737,60 @@ elif st.session_state.page == "slate":
         st.markdown("")
         st.markdown(
             f"""<div style="font-size:.82rem;color:{COLORS['muted']};margin-bottom:.8rem">
-            {len(all_games)} games · {ranked_n} ranked matchups · 
-            ⭐ = stats in DB · #N = AP rank · sorted by intrigue
+            {len(all_games)} games loaded · ⭐ = stats in DB · #N = AP rank
             </div>""", unsafe_allow_html=True)
 
         if "game_checks" not in st.session_state:
             st.session_state.game_checks = {}
-        if "slate_view_idx" not in st.session_state:
-            st.session_state.slate_view_idx = 0
 
+        # ── FILTERS ───────────────────────────────────────────────────────────
+        with st.expander("⚙️ Filter Games", expanded=True):
+            f_cols = st.columns(3)
+            with f_cols[0]:
+                conf_options = ["All"] + sorted(list({g.home_stats.conference for g in all_games if g.home_stats and g.home_stats.conference} | 
+                                                     {g.away_stats.conference for g in all_games if g.away_stats and g.away_stats.conference}))
+                filter_conf = st.selectbox("Conference", conf_options, index=0)
+            with f_cols[1]:
+                filter_ranked = st.checkbox("Ranked Teams Only", value=False)
+            with f_cols[2]:
+                filter_wins = st.slider("Min Wins (Either Team)", min_value=0, max_value=30, value=0)
+
+        # Apply filters
+        filtered_games = []
+        for g in all_games:
+            # Rank filter
+            is_ranked = (g.home_stats and g.home_stats.ranking) or (g.away_stats and g.away_stats.ranking)
+            if filter_ranked and not is_ranked:
+                continue
+                
+            # Conference filter
+            home_conf = g.home_stats.conference if g.home_stats else ""
+            away_conf = g.away_stats.conference if g.away_stats else ""
+            if filter_conf != "All" and filter_conf not in [home_conf, away_conf]:
+                continue
+                
+            # Win filter
+            def get_wins(record: str) -> int:
+                try: return int(record.split("-")[0])
+                except: return 0
+                
+            hw = get_wins(g.home_stats.record) if g.home_stats else 0
+            aw = get_wins(g.away_stats.record) if g.away_stats else 0
+            if max(hw, aw) < filter_wins:
+                continue
+                
+            filtered_games.append(g)
+
+        # ── TOP CONTROL BAR ───────────────────────────────────────────────────
         selected_ids = [gid for gid, v in st.session_state.game_checks.items() if v]
         n_sel = len(selected_ids)
-
-        # Top Control Row
         c1, c2 = st.columns([3, 1])
         with c1:
-            st.markdown(f"**Selected {n_sel} game{'s' if n_sel != 1 else ''}** for analysis.")
+            st.markdown(f"**Showing {len(filtered_games)} games** (Selected {n_sel} for analysis).")
         with c2:
             if n_sel > 0:
                 if st.button(f"▶ Analyze {n_sel} Game{'s' if n_sel != 1 else ''}", type="primary", use_container_width=True):
-                    chosen = [id_map[gid] for gid in selected_ids if gid in id_map]
+                    chosen = [g for g in all_games if g.game_id in selected_ids]
                     with st.spinner(f"🤖 Running EV analysis on {len(chosen)} game(s)..."):
                         try:
                             slate = run_async(analyze_full_slate(chosen, max_games=len(chosen)))
@@ -770,122 +804,63 @@ elif st.session_state.page == "slate":
 
         st.markdown("---")
 
-        idx = st.session_state.slate_view_idx
-        if idx >= len(sorted_games):
-            st.success(f"You've reviewed all {len(sorted_games)} games! Click Analyze above to proceed.")
-            if st.button("↺ Start Over"):
-                st.session_state.slate_view_idx = 0
-                st.session_state.game_checks = {}
-                st.rerun()
+        # ── GRID / LIST RENDERING ─────────────────────────────────────────────
+        if not filtered_games:
+            st.info("No games match your current filters. Try relaxing them.")
         else:
-            g = sorted_games[idx]
-            # 1. Base team data
-            away_name  = g.away_team
-            home_name  = g.home_team
-            away_rank  = g.away_stats.ranking if g.away_stats else None
-            home_rank  = g.home_stats.ranking if g.home_stats else None
-            away_rec   = g.away_stats.record if g.away_stats else ""
-            home_rec   = g.home_stats.record if g.home_stats else ""
-            tip        = g.game_time.strftime("%I:%M %p ET")
-            yyyymmdd   = g.game_time.strftime("%Y%m%d")
-
-            # 2. Map local team names to ESPN IDs for logos and stat leaders
-            away_espn_id = get_espn_team_id(away_name)
-            home_espn_id = get_espn_team_id(home_name)
-            
-            # Fallback to local map if dynamic mapper failed
-            if not away_espn_id:
-                for n, eid in TEAM_ESPN_IDS.items():
-                    if any(w in away_name for w in n.split()[:2]): away_espn_id = eid
-            if not home_espn_id:
-                for n, eid in TEAM_ESPN_IDS.items():
-                    if any(w in home_name for w in n.split()[:2]): home_espn_id = eid
-
-            # Venue is retrieved precisely from the schedule matching
-            venue = fetch_game_venue(home_espn_id, away_name)
-
-            # Live API spreads/totals are already stored in our DailyGame objects!
-            spread = ""
-            if g.home_odds and g.home_odds.line is not None:
-                spread = f"{home_name.split()[0]} {g.home_odds.line:+g}"
-            elif g.away_odds and g.away_odds.line is not None:
-                spread = f"{away_name.split()[0]} {g.away_odds.line:+g}"
+            for i, g in enumerate(filtered_games):
+                away_name  = g.away_team
+                home_name  = g.home_team
+                away_rank  = g.away_stats.ranking if g.away_stats else None
+                home_rank  = g.home_stats.ranking if g.home_stats else None
+                away_rec   = g.away_stats.record if g.away_stats else ""
+                home_rec   = g.home_stats.record if g.home_stats else ""
+                tip        = g.game_time.strftime("%I:%M %p ET") if g.game_time else "TBD"
                 
-            ou = ""
-            if g.total_over_odds and g.total_over_odds.line is not None:
-                ou = f"O/U {g.total_over_odds.line:g}"
+                away_espn_id = get_espn_team_id(away_name) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in away_name for w in n.split()[:2])), None)
+                home_espn_id = get_espn_team_id(home_name) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in home_name for w in n.split()[:2])), None)
+                away_logo = logo_url(away_espn_id) if away_espn_id else ""
+                home_logo = logo_url(home_espn_id) if home_espn_id else ""
 
-            away_logo = logo_url(away_espn_id) if away_espn_id else ""
-            home_logo = logo_url(home_espn_id) if home_espn_id else ""
+                rank_badge_a = f'<div class="gc-rank">#{away_rank} AP</div>' if away_rank else ""
+                rank_badge_h = f'<div class="gc-rank">#{home_rank} AP</div>' if home_rank else ""
+                logo_tag_a   = f'<img src="{away_logo}" width="50" height="50" style="object-fit:contain" alt="{away_name}">' if away_logo else f'<div style="width:50px;height:50px;background:#1a2236;border-radius:8px;"></div>'
+                logo_tag_h   = f'<img src="{home_logo}" width="50" height="50" style="object-fit:contain" alt="{home_name}">' if home_logo else f'<div style="width:50px;height:50px;background:#1a2236;border-radius:8px;"></div>'
 
-            @st.cache_data(ttl=3600)
-            def _get_leaders(espn_id, tname):
-                return fetch_team_stat_leaders(espn_id, tname) if espn_id else {}
+                blurb_html = generate_matchup_bullets(g, tip)
 
-            away_leaders = _get_leaders(away_espn_id, away_name)
-            home_leaders = _get_leaders(home_espn_id, home_name)
-
-            def _leader_pills(leaders: dict) -> str:
-                pts = leaders.get('pts', {})
-                reb = leaders.get('reb', {})
-                ast = leaders.get('ast', {})
-                return (
-                    f'<span class="gc-pill"><b>PTS</b> {pts.get("name","—")} {pts.get("value","—")}</span>'
-                    f'<span class="gc-pill"><b>REB</b> {reb.get("name","—")} {reb.get("value","—")}</span>'
-                    f'<span class="gc-pill"><b>AST</b> {ast.get("name","—")} {ast.get("value","—")}</span>'
-                ) if leaders else '<span class="gc-pill">Stats N/A</span>'
-
-            # 3. Game preview bullet points
-            blurb_html = generate_matchup_bullets(g, tip)
-
-            # Flush-left HTML string to prevent Markdown code block bugs
-            rank_badge_a = f'<div class="gc-rank">#{away_rank} AP</div>' if away_rank else ""
-            rank_badge_h = f'<div class="gc-rank">#{home_rank} AP</div>' if home_rank else ""
-            logo_tag_a   = f'<img src="{away_logo}" width="60" height="60" style="object-fit:contain" alt="{away_name}">' if away_logo else f'<div style="width:60px;height:60px;background:#1a2236;border-radius:8px;"></div>'
-            logo_tag_h   = f'<img src="{home_logo}" width="60" height="60" style="object-fit:contain" alt="{home_name}">' if home_logo else f'<div style="width:60px;height:60px;background:#1a2236;border-radius:8px;"></div>'
-
-            html_card = f"""
-<div style="text-align:center;color:{COLORS['muted']};font-size:.85rem;margin-bottom:.5rem;">Game {idx+1} of {len(sorted_games)}</div>
-<div class="game-card">
-<div class="gc-team">
+                html_card = f"""
+<div class="game-card" style="margin-bottom:0.8rem; padding:1rem;">
+<div class="gc-teams" style="gap:0.8rem;">
+<div class="gc-team" style="min-width:80px;">
 {logo_tag_a}
 {rank_badge_a}
 <div class="gc-tname">{away_name}</div>
 <div class="gc-rec">{away_rec}</div>
-<div class="gc-label">AWAY</div>
-<div class="gc-leaders">{_leader_pills(away_leaders)}</div>
 </div>
 <div class="gc-vs">@</div>
-<div class="gc-team">
+<div class="gc-team" style="min-width:80px;">
 {logo_tag_h}
 {rank_badge_h}
 <div class="gc-tname">{home_name}</div>
 <div class="gc-rec">{home_rec}</div>
-<div class="gc-label">HOME</div>
-<div class="gc-leaders">{_leader_pills(home_leaders)}</div>
 </div>
-<div class="gc-mid">
-<div style="font-size:.75rem;color:#fbbf24;font-weight:800">{tip}</div>
+<div class="gc-mid" style="flex:2;">
+<div style="font-size:.75rem;color:#fbbf24;font-weight:800;margin-bottom:0.2rem">{tip}</div>
+<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.4;">{blurb_html}</div>
 </div>
-<div class="gc-blurb">💬 {blurb_html}</div>
+</div>
 </div>
 """
-            st.markdown(html_card, unsafe_allow_html=True)
-
-            cd1, cd2 = st.columns(2)
-            if cd1.button(f"✖ Skip", key=f"skp_{g.game_id}", use_container_width=True):
-                st.session_state.slate_view_idx += 1
-                st.rerun()
+                st.markdown(html_card, unsafe_allow_html=True)
                 
-            if cd2.button(f"🔥 Interested", key=f"int_{g.game_id}", type="primary", use_container_width=True):
-                ledger.record_interest(g.home_team)
-                ledger.record_interest(g.away_team)
-                st.session_state.game_checks[g.game_id] = True
-                st.session_state.slate_view_idx += 1
-                st.rerun()
-
-        selected_ids = [gid for gid, v in st.session_state.game_checks.items() if v]
-        n_sel = len(selected_ids)
+                # Checkbox for selection underneath each card inline
+                gid = g.game_id if g.game_id else f"game_{i}"
+                checked = st.session_state.game_checks.get(gid, False)
+                new_val = st.checkbox(f"Analyze {away_name} @ {home_name}", value=checked, key=f"chk_{gid}")
+                if new_val != checked:
+                    st.session_state.game_checks[gid] = new_val
+                    st.rerun()
 
         st.markdown("")
     else:
