@@ -1022,34 +1022,34 @@ elif st.session_state.page == "pending":
         if pending:
             st.markdown(f'<div class="indie-section-hdr">Single Bets</div>', unsafe_allow_html=True)
             for bet in pending:
-            icon  = "✅" if bet["status"] == "approved" else "🕐"
-            with st.expander(
-                f"{icon} {bet['away_team']} @ {bet['home_team']}  ·  "
-                f"{bet['bet_type'].upper()} {bet['side'].upper()}  "
-                f"({'%+d' % bet['american_odds']})  ·  EV {bet['expected_value']:+.1%}  ·  {bet['recommended_units']:.2f}u"
-            ):
-                st.markdown(f"**ID:** `{bet['id'][:8]}` &nbsp;&nbsp; **Status:** `{bet['status'].upper()}`")
-                st.markdown(f"**Summary:** {bet['summary']}")
+                icon  = "✅" if bet["status"] == "approved" else "🕐"
+                with st.expander(
+                    f"{icon} {bet['away_team']} @ {bet['home_team']}  ·  "
+                    f"{bet['bet_type'].upper()} {bet['side'].upper()}  "
+                    f"({'%+d' % bet['american_odds']})  ·  EV {bet['expected_value']:+.1%}  ·  {bet['recommended_units']:.2f}u"
+                ):
+                    st.markdown(f"**ID:** `{bet['id'][:8]}` &nbsp;&nbsp; **Status:** `{bet['status'].upper()}`")
+                    st.markdown(f"**Summary:** {bet['summary']}")
 
-                action_cols = st.columns([1, 1, 1, 3])
-                if bet["status"] == "pending":
-                    if action_cols[0].button("✅ Approve", key=f"pa_{bet['id'][:8]}"):
-                        ledger.approve_bet(bet["id"])
-                        st.success("Approved!")
+                    action_cols = st.columns([1, 1, 1, 3])
+                    if bet["status"] == "pending":
+                        if action_cols[0].button("✅ Approve", key=f"pa_{bet['id'][:8]}"):
+                            ledger.approve_bet(bet["id"])
+                            st.success("Approved!")
+                            st.rerun()
+                    if action_cols[1].button("🗑 Remove", key=f"del_{bet['id'][:8]}",
+                                              help="Delete this bet without settling"):
+                        ledger.db.execute("DELETE FROM bets WHERE id = ?", [bet["id"]])
+                        ledger.db.conn.commit()
+                        st.success("Bet removed.")
                         st.rerun()
-                if action_cols[1].button("🗑 Remove", key=f"del_{bet['id'][:8]}",
-                                          help="Delete this bet without settling"):
-                    ledger.db.execute("DELETE FROM bets WHERE id = ?", [bet["id"]])
-                    ledger.db.conn.commit()
-                    st.success("Bet removed.")
-                    st.rerun()
 
-                st.markdown("---")
-                st.markdown("**Settle this bet:**")
-                sc1, sc2, sc3 = st.columns([2, 2, 1])
-                result = sc1.selectbox("Result", ["win","loss","push"], key=f"res_{bet['id'][:8]}")
-                pl     = sc2.number_input("P/L (units)", value=float(bet["recommended_units"]),
-                                           step=0.01, key=f"pl_{bet['id'][:8]}")
+                    st.markdown("---")
+                    st.markdown("**Settle this bet:**")
+                    sc1, sc2, sc3 = st.columns([2, 2, 1])
+                    result = sc1.selectbox("Result", ["win","loss","push"], key=f"res_{bet['id'][:8]}")
+                    pl     = sc2.number_input("P/L (units)", value=float(bet["recommended_units"]),
+                                               step=0.01, key=f"pl_{bet['id'][:8]}")
                 if sc3.button("Settle", key=f"st_{bet['id'][:8]}"):
                     ledger.settle_bet(bet["id"], result, pl if result != "loss" else -abs(pl))
                     st.success(f"Settled as {result.upper()}!")
