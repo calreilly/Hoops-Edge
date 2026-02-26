@@ -195,6 +195,12 @@ async def analyze_game_market(
     result = await ev_agent.run(prompt)
     rec = result.output
 
+    # ENFORCE the requested parameters to prevent LLM hallucinations
+    # from accidentally colliding unique bets in the DailySlate validator.
+    rec.game_id = game.game_id
+    rec.bet_type = bet_type
+    rec.side = side
+
     # Override agent's unit suggestion with hard quarter-Kelly math (Week 2 improvement)
     apply_kelly_to_recommendation(rec)
 

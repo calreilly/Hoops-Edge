@@ -116,9 +116,12 @@ def _lookup_team_stats(team_name: str, ledger: BetLedger) -> Optional[TeamStats]
             best_score = score
             best_match = row
 
-    # Require at least 2 meaningful word matches to accept
-    if best_score >= 2 and best_match is not None:
-        return TeamStats(**{k: v for k, v in best_match.items() if k != "last_updated"})
+    # Accept if we have 2+ matching words, OR if we matched 100% of the words
+    # in the stored DB name (e.g., stored="Alabama", FanDuel="Alabama Crimson Tide").
+    if best_match is not None:
+        best_stored_words = {w for w in best_match["team_name"].lower().split() if w not in STOP_WORDS}
+        if best_score >= 2 or (len(best_stored_words) > 0 and best_score == len(best_stored_words)):
+            return TeamStats(**{k: v for k, v in best_match.items() if k != "last_updated"})
 
     # No confident match — return None so the agent gets no stats
     # (better to say "no data" than to give wrong data)
@@ -128,10 +131,10 @@ def _lookup_team_stats(team_name: str, ledger: BetLedger) -> Optional[TeamStats]
 ET = ZoneInfo("America/New_York")
 
 
-def fetch_live_rankings() -> dict[str, int]:
+def fetch_live_rankings() -> dict[str, tuple[int, str]]:
     """
     Fetch the current AP Top 25 poll from ESPN's free public API.
-    Returns {team_display_name_lower: rank}.
+    Returns {team_display_name_lower: (rank, record)}.
     Falls back to empty dict on any failure — never crashes the caller.
     """
     try:
@@ -144,7 +147,7 @@ def fetch_live_rankings() -> dict[str, int]:
             print(f"  [Rankings] ESPN returned {resp.status_code} — skipping ranking update.")
             return {}
         data = resp.json()
-        rankings: dict[str, int] = {}
+        rankings: dict[str, tuple[int, str]] = {}
         for poll in data.get("rankings", []):
             if "AP" not in poll.get("name", ""):
                 continue
@@ -153,9 +156,10 @@ def fetch_live_rankings() -> dict[str, int]:
                 team = entry.get("team", {})
                 loc = team.get("location", "")
                 nickname = team.get("name", "")
+                record = entry.get("recordSummary", "0-0")
                 name = f"{loc} {nickname}".strip()
                 if name and rank:
-                    rankings[name.lower()] = rank
+                    rankings[name.lower()] = (rank, record)
         print(f"  [Rankings] {len(rankings)} AP Top 25 teams from ESPN.")
         return rankings
     except Exception as e:
@@ -166,13 +170,13 @@ def fetch_live_rankings() -> dict[str, int]:
 def _apply_live_ranking(
     stats: Optional[TeamStats],
     team_name: str,
-    live_rankings: dict[str, int],
+    live_rankings: dict[str, tuple[int, str]],
 ) -> Optional[TeamStats]:
     """
     Overwrite stats.ranking with the live AP rank if a name match is found.
     Clears stale ranking if team is no longer ranked.
     """
-    if stats is None or not live_rankings:
+    if not live_rankings:
         return stats
         
     STOP_WORDS = {"st.", "st", "state", "the", "of", "at", "university", "college",
@@ -181,14 +185,22 @@ def _apply_live_ranking(
     name_lower = team_name.lower()
     name_words = {w for w in name_lower.split() if w not in STOP_WORDS}
     
-    for key, rank in live_rankings.items():
+    for key, (rank, record) in live_rankings.items():
         key_words = {w for w in key.split() if w not in STOP_WORDS}
         overlap = key_words & name_words
-        if len(overlap) >= 2:
-            return stats.model_copy(update={"ranking": rank})
+        if len(overlap) >= 2 or (len(key_words) > 0 and len(overlap) == len(key_words)):
+            # If we don't have stats yet, make a dummy one just so the rank can be attached
+            if stats is None:
+                stats = TeamStats(
+                    team_id=team_name,
+                    team_name=team_name,
+                    record=record,
+                    last_updated=datetime.now()
+                )
+            return stats.model_copy(update={"ranking": rank, "record": record})
             
     # Team not found in live poll — clear any stale ranking
-    return stats.model_copy(update={"ranking": None})
+    return stats.model_copy(update={"ranking": None}) if stats else None
 
 
 
