@@ -1210,33 +1210,33 @@ elif st.session_state.page == "history":
             today = datetime.now().date()
             start_date = today - timedelta(days=29)
             
-            # CSS for calendar grid and custom tooltips
-            grid_html = """
-            <style>
-            .cal-container { width: 100%; max-width: 800px; margin: 0 auto 2rem auto; }
-            .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-            .cal-header { text-align: center; font-size: 0.75rem; font-weight: 700; color: #94a3b8; margin-bottom: 4px; padding: 4px 0; text-transform: uppercase; letter-spacing: 0.05em; }
-            .cal-cell { position: relative; height: 64px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.85rem; cursor: pointer; color: rgba(255,255,255,0.9); border: 1px solid #334155; transition: transform 0.1s, filter 0.1s; }
-            .cal-cell:hover { filter: brightness(1.2); transform: scale(1.03); z-index: 2; }
-            .cal-cell-empty { background: transparent; border: none; pointer-events: none; }
-            .cal-day { font-weight: 700; font-size: 0.9rem; margin-bottom: 2px; }
-            .cal-pl { font-size: 0.65rem; font-weight: 600; opacity: 0.9; }
-            .cal-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: #0f172a; color: #f8fafc; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; z-index: 50; border: 1px solid #334155; pointer-events: none; transition: opacity 0.2s; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); text-align: center; }
-            .cal-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #334155 transparent transparent transparent; }
-            .cal-cell:hover .cal-tooltip { visibility: visible; opacity: 1; }
-            </style>
-            <div class="cal-container">
-                <div class="cal-grid">
-            """
+            # CSS for calendar grid and custom tooltips (Unindented to prevent markdown code blocks)
+            grid_html = (
+"<style>"
+".cal-container { width: 100%; max-width: 800px; margin: 0 auto 2rem auto; }"
+".cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }"
+".cal-header { text-align: center; font-size: 0.75rem; font-weight: 700; color: #94a3b8; margin-bottom: 4px; padding: 4px 0; text-transform: uppercase; letter-spacing: 0.05em; }"
+".cal-cell { position: relative; height: 64px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.85rem; cursor: pointer; color: rgba(255,255,255,0.9); border: 1px solid #334155; transition: transform 0.1s, filter 0.1s; }"
+".cal-cell:hover { filter: brightness(1.2); transform: scale(1.03); z-index: 2; }"
+".cal-cell-empty { background: transparent; border: none; pointer-events: none; }"
+".cal-day { font-weight: 700; font-size: 0.9rem; margin-bottom: 2px; }"
+".cal-pl { font-size: 0.65rem; font-weight: 600; opacity: 0.9; }"
+".cal-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: #0f172a; color: #f8fafc; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; z-index: 50; border: 1px solid #334155; pointer-events: none; transition: opacity 0.2s; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); text-align: center; }"
+".cal-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #334155 transparent transparent transparent; }"
+".cal-cell:hover .cal-tooltip { visibility: visible; opacity: 1; }"
+"</style>"
+"<div class='cal-container'>"
+"<div class='cal-grid'>"
+            )
             
             # Days of week headers
             for day in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
-                grid_html += f'<div class="cal-header">{day}</div>'
+                grid_html += f"<div class='cal-header'>{day}</div>"
                 
             # Pad beginning of grid to align with correct weekday (Sunday = 0)
             start_day_idx = (start_date.weekday() + 1) % 7
             for _ in range(start_day_idx):
-                grid_html += '<div class="cal-cell cal-cell-empty"></div>'
+                grid_html += "<div class='cal-cell cal-cell-empty'></div>"
             
             max_p = max([p for p in daily_pl.values() if p > 0] + [0.1])
             min_l = min([p for p in daily_pl.values() if p < 0] + [-0.1])
@@ -1267,18 +1267,18 @@ elif st.session_state.page == "history":
                 tooltip_body = f"<b>{pl:+.2f} Units</b><br>{count} bets settled" if count > 0 else "No settled bets"
                 
                 # Render cell
-                grid_html += f'''
-                <div class="cal-cell" style="background-color: {bg}; border-color: {border};">
-                    <div class="cal-day">{d.day}</div>
-                    <div class="cal-pl">{pl_text}</div>
-                    <div class="cal-tooltip">
-                        <div style="color:#94a3b8;margin-bottom:3px">{tooltip_date}</div>
-                        <div>{tooltip_body}</div>
-                    </div>
-                </div>
-                '''
+                grid_html += (
+f"<div class='cal-cell' style='background-color: {bg}; border-color: {border};'>"
+f"<div class='cal-day'>{d.day}</div>"
+f"<div class='cal-pl'>{pl_text}</div>"
+f"<div class='cal-tooltip'>"
+f"<div style='color:#94a3b8;margin-bottom:3px'>{tooltip_date}</div>"
+f"<div>{tooltip_body}</div>"
+f"</div>"
+f"</div>"
+                )
                 
-            grid_html += '</div></div>'
+            grid_html += "</div></div>"
             st.markdown(grid_html, unsafe_allow_html=True)
             
         st.markdown("<br>", unsafe_allow_html=True)
