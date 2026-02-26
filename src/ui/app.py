@@ -1030,6 +1030,20 @@ elif st.session_state.page == "pending":
     pending = list(ledger.db["bets"].rows_where("status IN ('pending','approved')", []))
     pending_parlays = ledger.get_pending_parlays()
 
+    # ── Auto Settle ──────────────────────────────────────────────────────────
+    if pending:
+        from src.tools.settlement import auto_settle_pending_bets
+        if st.button("🔄 Auto-Settle Completed Games via ESPN", use_container_width=True):
+            with st.spinner("Scanning ESPN Scoreboard for final scores..."):
+                w, l, p = auto_settle_pending_bets(ledger)
+                if w > 0 or l > 0 or p > 0:
+                    st.success(f"Auto-Settle Complete: {w} Wins, {l} Losses, {p} Pushes!")
+                else:
+                    st.info("No pending single bets match any recently finalized ESPN games.")
+            import time
+            time.sleep(2)
+            st.rerun()
+
     # ── Danger zone: clear all ────────────────────────────────────────────────
     if pending or pending_parlays:
         with st.expander("⚠️ Danger zone"):
