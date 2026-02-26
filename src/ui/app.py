@@ -786,10 +786,21 @@ elif st.session_state.page == "slate":
         # ── TOP CONTROL BAR ───────────────────────────────────────────────────
         selected_ids = [gid for gid, v in st.session_state.game_checks.items() if v]
         n_sel = len(selected_ids)
-        c1, c2, c3 = st.columns([2, 1, 1])
+        c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
         with c1:
             st.markdown(f"**Showing {len(filtered_games)} games** (Selected {n_sel} for analysis).")
         with c2:
+            if len(filtered_games) > 0:
+                if st.button("☑️ Select All", use_container_width=True):
+                    for g in filtered_games:
+                        gid = g.game_id if g.game_id else f"game_{all_games.index(g)}"
+                        st.session_state.game_checks[gid] = True
+                    st.rerun()
+                if n_sel > 0:
+                    if st.button("🔳 Deselect All", use_container_width=True):
+                        st.session_state.game_checks.clear()
+                        st.rerun()
+        with c3:
             if len(filtered_games) > 0:
                 if st.button(f"🪄 AI Previews for Slate", use_container_width=True):
                     with st.spinner(f"Generating mini-previews for {len(filtered_games)} games..."):
@@ -800,7 +811,7 @@ elif st.session_state.page == "slate":
                             st.rerun()
                         except Exception as e:
                             st.error(f"Preview error: {e}")
-        with c3:
+        with c4:
             if n_sel > 0:
                 if st.button(f"▶ Analyze {n_sel} Game{'s' if n_sel != 1 else ''}", type="primary", use_container_width=True):
                     chosen = [g for g in all_games if g.game_id in selected_ids]
