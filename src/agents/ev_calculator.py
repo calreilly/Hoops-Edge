@@ -9,7 +9,7 @@ Uses Chain-of-Thought (CoT) prompting via PydanticAI to:
 import os
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
 from dotenv import load_dotenv
@@ -17,10 +17,13 @@ from dotenv import load_dotenv
 from src.models.schemas import (
     Game, EVAnalysis, BetRecommendation, BetType, BetSide, DailySlate
 )
+from src.tools.espn_client import (
+    fetch_team_schedule, get_espn_team_id, TEAM_ESPN_IDS
+)
 
 load_dotenv()
 
-# --- System Prompt (Week 2: Reasoning as Logic) ---
+# --- System Prompt (Week 3: Advanced Context & Form) ---
 SYSTEM_PROMPT = """
 You are Hoops Edge, an elite quantitative sports betting analyst specializing 
 in NCAA college basketball (+EV identification).
@@ -31,15 +34,18 @@ market offers POSITIVE EXPECTED VALUE (+EV) on FanDuel.
 ## Reasoning Protocol (Chain-of-Thought)
 You MUST reason step-by-step. For each market (spread, moneyline, total) you evaluate:
 
-STEP 1 — Team Context: Summarize each team's offensive/defensive efficiency, pace, 
-         recent form, and relevant injuries.
-STEP 2 — Matchup Analysis: Identify key stylistic advantages (e.g., "Team A's 
+STEP 1 — Baseline Stats & Form: Summarize each team's offensive/defensive efficiency, 
+         pace, ATS records, and heavily weigh their **recent form** (Last 5 Games) 
+         to identify hot/cold streaks.
+STEP 2 — Context & Injuries: Factor in the **live injury report** constraints. If a 
+         star player is noted as OUT or questionable, adjust your baseline expectations.
+STEP 3 — Matchup Analysis: Identify key stylistic advantages (e.g., "Team A's 
          elite 3-point defense smothers Team B's pace-and-space offense").
-STEP 3 — Probability Estimation: State your estimated win probability for each 
+STEP 4 — Probability Estimation: State your estimated win probability for each 
          side, with explicit justification.
-STEP 4 — EV Calculation: EV = (your_prob * decimal_odds) - 1
+STEP 5 — EV Calculation: EV = (your_prob * decimal_odds) - 1
          If EV > 0.03 (3%) → flag as a potential bet.
-STEP 5 — Confidence Check: Rate your confidence (0.0–1.0). If confidence < 0.55, 
+STEP 6 — Confidence Check: Rate your confidence (0.0–1.0). If confidence < 0.55, 
          reduce unit size. Never recommend a bet with confidence < 0.50.
 
 ## Unit Sizing (Kelly Criterion, quarter-Kelly)
@@ -57,7 +63,7 @@ You MUST return a valid JSON object matching BetRecommendation exactly:
 - american_odds: integer
 - ev_analysis object with:
     - bet_type / side: same as above
-    - reasoning_steps: list of 3-5 strings (your CoT steps)
+    - reasoning_steps: list of 4-6 strings (your CoT steps)
     - projected_win_probability: float 0.0-1.0
     - implied_probability: float 0.0-1.0 (compute from odds)
     - expected_value: float (= projected_prob * decimal_odds - 1)
@@ -80,7 +86,13 @@ ev_agent = Agent(
 )
 
 
-def build_game_prompt(game: Game, bet_type: BetType, side: BetSide) -> str:
+def build_game_prompt(
+    game: Game, 
+    bet_type: BetType, 
+    side: BetSide,
+    home_recent: str = "No recent form data.",
+    away_recent: str = "No recent form data.",
+) -> str:
     """Build the user message for the agent to analyze a specific market."""
     
     # Get relevant odds
@@ -159,9 +171,11 @@ Implied Probability: {odds.implied_probability:.1%}
 ## Team Stats
 {game.home_team} (HOME):
 {home_block}
+LAST 5 GAMES: {home_recent}
 
 {game.away_team} (AWAY):
 {away_block}
+LAST 5 GAMES: {away_recent}
 
 ## Injury / News Context
 {game.injury_notes or 'No significant injury news available.'}
@@ -179,6 +193,8 @@ async def analyze_game_market(
     game: Game,
     bet_type: BetType,
     side: BetSide,
+    home_recent: str = "No recent form data.",
+    away_recent: str = "No recent form data.",
 ) -> BetRecommendation:
     """
     Run the EV agent for one specific market of a game.
@@ -191,7 +207,7 @@ async def analyze_game_market(
     if game.home_stats is None and game.away_stats is None:
         raise ValueError("No stats available for either team — skipping LLM call")
 
-    prompt = build_game_prompt(game, bet_type, side)
+    prompt = build_game_prompt(game, bet_type, side, home_recent, away_recent)
     result = await ev_agent.run(prompt)
     rec = result.output
 
@@ -294,14 +310,16 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlat
         markets = _select_markets(game)
         pricing_score = 0
         for bt, side in markets:
+            odds_obj = None
             if bt == BetType.SPREAD:
                 odds_obj = game.away_odds if side == BetSide.AWAY else game.home_odds
-            elif side == BetSide.OVER:
-                odds_obj = game.total_over_odds
-            else:
-                odds_obj = game.total_under_odds
-            if odds_obj:
-                pricing_score += odds_obj.american_odds  # -102 > -115 → better price
+            elif bt == BetType.TOTAL:
+                odds_obj = game.total_over_odds if side == BetSide.OVER else game.total_under_odds
+            elif bt == BetType.MONEYLINE:
+                odds_obj = game.away_ml if side == BetSide.AWAY else game.home_ml
+                
+            if odds_obj and odds_obj.american_odds:
+                pricing_score += odds_obj.american_odds
 
         return (stats_score, pricing_score)
 
@@ -310,10 +328,59 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlat
     print(f"  Ranked {len(games)} games → analyzing top {len(ranked)}...\n")
     games = ranked
 
+    # Fetch ESPN contexts for the chosen games
+    recent_forms: dict[str, str] = {}
+    for g in games:
+        # Home
+        hid = get_espn_team_id(g.home_team) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in g.home_team for w in n.split()[:2])), None)
+        if hid and hid not in recent_forms:
+            try:
+                sched = fetch_team_schedule(hid)
+                comp_all: list[Any] = [evt for evt in sched if evt.get("completed") and evt.get("home_score") is not None and evt.get("away_score") is not None]
+                completed_5 = comp_all[-5:] if len(comp_all) > 5 else comp_all
+                strs = []
+                for evt in completed_5:
+                    is_home = evt.get("team_is_home", True)
+                    team_score = evt.get("home_score") if is_home else evt.get("away_score")
+                    opp_score = evt.get("away_score") if is_home else evt.get("home_score")
+                    opp_name = evt.get("away") if is_home else evt.get("home")
+                    res = "W" if team_score > opp_score else "L"
+                    strs.append(f"{res} {team_score}-{opp_score} vs {opp_name}")
+                recent_str = " | ".join(strs)
+                recent_forms[hid] = recent_str if recent_str else "No completed games found."
+            except Exception as e:
+                print(f"Error fetching home context: {e}")
+                recent_forms[hid] = "No recent form data."
+            g._home_eid = hid
+            
+        # Away
+        aid = get_espn_team_id(g.away_team) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in g.away_team for w in n.split()[:2])), None)
+        if aid and aid not in recent_forms:
+            try:
+                sched = fetch_team_schedule(aid)
+                comp_all: list[Any] = [evt for evt in sched if evt.get("completed") and evt.get("home_score") is not None and evt.get("away_score") is not None]
+                completed_5 = comp_all[-5:] if len(comp_all) > 5 else comp_all
+                strs = []
+                for evt in completed_5:
+                    is_home = evt.get("team_is_home", False)
+                    team_score = evt.get("home_score") if is_home else evt.get("away_score")
+                    opp_score = evt.get("away_score") if is_home else evt.get("home_score")
+                    opp_name = evt.get("away") if is_home else evt.get("home")
+                    res = "W" if team_score > opp_score else "L"
+                    strs.append(f"{res} {team_score}-{opp_score} vs {opp_name}")
+                recent_str = " | ".join(strs)
+                recent_forms[aid] = recent_str if recent_str else "No completed games found."
+            except Exception as e:
+                print(f"Error fetching away context: {e}")
+                recent_forms[aid] = "No recent form data."
+            g._away_eid = aid
+
     # Run ALL game-market combos concurrently
-    async def analyze_one(game: Game, bet_type: BetType, side: BetSide):
+    async def analyze_one(game: Game, bet_type: BetType, side: BetSide) -> Optional[BetRecommendation]:
         try:
-            rec = await analyze_game_market(game, bet_type, side)
+            h_form = recent_forms.get(getattr(game, '_home_eid', ''), "No recent form data.")
+            a_form = recent_forms.get(getattr(game, '_away_eid', ''), "No recent form data.")
+            rec = await analyze_game_market(game, bet_type, side, h_form, a_form)
             return rec
         except Exception as e:
             print(f"  [Warning] Skipped {game.away_team} @ {game.home_team} "
@@ -327,7 +394,7 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlat
     ]
 
     results = await asyncio.gather(*tasks)
-    all_recs = [r for r in results if r is not None]
+    all_recs: list[BetRecommendation] = [r for r in results if r is not None]
 
     # Print per-game summary
     for game in games:
