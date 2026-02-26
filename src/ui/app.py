@@ -1236,19 +1236,8 @@ elif st.session_state.page == "history":
                     
                 tooltip = f"{d.strftime('%b %d')}&#10;{pl:+.2f}u&#10;{count} bets" if count > 0 else f"{d.strftime('%b %d')}&#10;No bets"
                 
-                grid_html += f'''
-                <div title="{tooltip}" style="
-                    width: 36px; height: 36px;
-                    background-color: {bg}; 
-                    border: 1px solid {border}; 
-                    border-radius: 6px;
-                    display: flex; align-items: center; justify-content: center;
-                    font-size: 0.75rem; color: rgba(255,255,255,0.85);
-                    cursor: pointer;
-                ">
-                {d.day}
-                </div>
-                '''
+                grid_html += f'<div title="{tooltip}" style="width: 36px; height: 36px; background-color: {bg}; border: 1px solid {border}; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: rgba(255,255,255,0.85); cursor: pointer;">{d.day}</div>'
+                
             grid_html += '</div>'
             st.markdown(grid_html, unsafe_allow_html=True)
             
