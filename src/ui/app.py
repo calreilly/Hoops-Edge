@@ -21,6 +21,7 @@ from src.tools.espn_client import (
     fetch_team_stat_leaders, fetch_game_venue, inches_to_ft,
     get_espn_team_id, logo_url, TEAM_ESPN_IDS, get_all_espn_teams
 )
+from src.agents.batch_preview import generate_slate_previews
 
 def generate_matchup_bullets(g, tip: str) -> str:
     """Generate HTML bullet points comparing teams for game preview cards and search results."""
@@ -543,6 +544,7 @@ init_state({
     "all_games": None,
     "selected_ids": [],
     "search_messages": [],
+    "ai_previews": {},
 })
 
 
@@ -784,10 +786,21 @@ elif st.session_state.page == "slate":
         # ── TOP CONTROL BAR ───────────────────────────────────────────────────
         selected_ids = [gid for gid, v in st.session_state.game_checks.items() if v]
         n_sel = len(selected_ids)
-        c1, c2 = st.columns([3, 1])
+        c1, c2, c3 = st.columns([2, 1, 1])
         with c1:
             st.markdown(f"**Showing {len(filtered_games)} games** (Selected {n_sel} for analysis).")
         with c2:
+            if len(filtered_games) > 0:
+                if st.button(f"🪄 AI Previews for Slate", use_container_width=True):
+                    with st.spinner(f"Generating mini-previews for {len(filtered_games)} games..."):
+                        try:
+                            previews = run_async(generate_slate_previews(filtered_games))
+                            # Merge into existing so we don't lose old ones if filtering changes
+                            st.session_state.ai_previews.update(previews)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Preview error: {e}")
+        with c3:
             if n_sel > 0:
                 if st.button(f"▶ Analyze {n_sel} Game{'s' if n_sel != 1 else ''}", type="primary", use_container_width=True):
                     chosen = [g for g in all_games if g.game_id in selected_ids]
@@ -828,6 +841,9 @@ elif st.session_state.page == "slate":
                 logo_tag_h   = f'<img src="{home_logo}" width="50" height="50" style="object-fit:contain" alt="{home_name}">' if home_logo else f'<div style="width:50px;height:50px;background:#1a2236;border-radius:8px;"></div>'
 
                 blurb_html = generate_matchup_bullets(g, tip)
+                ai_prev = st.session_state.ai_previews.get(g.game_id, "")
+                if ai_prev:
+                    blurb_html += f'<div style="margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid #1e2d45; color:#a78bfa;"><b>🪄 AI Edge:</b> {ai_prev}</div>'
 
                 html_card = f"""
 <div class="game-card" style="margin-bottom:0.8rem; padding:1rem;">
