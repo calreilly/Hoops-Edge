@@ -80,12 +80,14 @@ def _lookup_team_stats(team_name: str, ledger: BetLedger) -> Optional[TeamStats]
 
     Strategy (in order):
       1. Exact match (case-insensitive)
-      2. ≥2 meaningful words overlap between API name and stored name
+      2. Strict Subset Match or Jaccard Similarity >= 0.6
       3. No match → return None (never assign stats to the wrong team)
 
     Single-word mascot matches (e.g. 'Tigers', 'Devils') are intentionally
     rejected to prevent assigning P5 stats to low-major programs.
     """
+    import string
+    
     # Words that appear in many team names and should not count as meaningful
     STOP_WORDS = {"st", "state", "the", "of", "at", "university", "college",
                   "a&m", "u", "nc", "pa", "ny", "la"}
@@ -95,38 +97,49 @@ def _lookup_team_stats(team_name: str, ledger: BetLedger) -> Optional[TeamStats]
         return None
 
     name_lower = team_name.lower()
-    name_words = {w for w in name_lower.split() if w not in STOP_WORDS}
+    
+    # Fast exact match check first
+    for row in all_stats:
+        if row["team_name"].lower() == name_lower:
+            return TeamStats(**{k: v for k, v in row.items() if k != "last_updated"})
+
+    # Fuzzy Match setup
+    clean_name = name_lower.translate(str.maketrans('', '', string.punctuation))
+    name_words = {w for w in clean_name.split() if w not in STOP_WORDS}
 
     best_match = None
     best_score = 0
+    best_jaccard = 0
 
     for row in all_stats:
         stored = row["team_name"].lower()
+        clean_stored = stored.translate(str.maketrans('', '', string.punctuation))
+        stored_words = {w for w in clean_stored.split() if w not in STOP_WORDS}
 
-        # 1. Exact match
-        if stored == name_lower:
-            return TeamStats(**{k: v for k, v in row.items() if k != "last_updated"})
-
-        # 2. Word-overlap scoring
-        stored_words = {w for w in stored.split() if w not in STOP_WORDS}
         overlap = name_words & stored_words
         score = len(overlap)
 
         if score > best_score:
             best_score = score
             best_match = row
+            
+            union_len = len(name_words | stored_words)
+            best_jaccard = score / union_len if union_len > 0 else 0
 
-    # Accept if we have 2+ matching words, OR if we matched 100% of the words
-    # in the stored DB name (e.g., stored="Alabama", FanDuel="Alabama Crimson Tide").
     if best_match is not None:
-        best_stored_words = {w for w in best_match["team_name"].lower().split() if w not in STOP_WORDS}
-        if best_score >= 2 or (len(best_stored_words) > 0 and best_score == len(best_stored_words)):
+        clean_stored = best_match["team_name"].lower().translate(str.maketrans('', '', string.punctuation))
+        best_stored_words = {w for w in clean_stored.split() if w not in STOP_WORDS}
+        
+        is_subset = best_stored_words.issubset(name_words) or name_words.issubset(best_stored_words)
+        
+        # Accept if it's a perfect subset (e.g. "Duke" inside "Duke Blue Devils") 
+        # or if they heavily overlap (Jaccard >= 0.6)
+        if is_subset or best_jaccard >= 0.6:
             return TeamStats(**{k: v for k, v in best_match.items() if k != "last_updated"})
 
     # No confident match — return None so the agent gets no stats
     # (better to say "no data" than to give wrong data)
     return None
-
 
 ET = ZoneInfo("America/New_York")
 
