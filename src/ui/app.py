@@ -749,15 +749,16 @@ elif st.session_state.page == "slate":
         with st.expander("⚙️ Filter Games", expanded=True):
             f_cols = st.columns(3)
             with f_cols[0]:
-                conf_options = ["All"] + sorted(list({g.home_stats.conference for g in all_games if g.home_stats and g.home_stats.conference} | 
-                                                     {g.away_stats.conference for g in all_games if g.away_stats and g.away_stats.conference}))
-                filter_conf = st.selectbox("Conference", conf_options, index=0)
+                conf_options = sorted(list({g.home_stats.conference for g in all_games if g.home_stats and g.home_stats.conference} | 
+                                                     {g.away_stats.conference for g in all_games if g.away_stats and g.away_stats.conference} - {""}))
+                filter_conf = st.multiselect("Conferences (Select multiple)", options=["Power 5", "Mid-Major"] + conf_options, default=[])
             with f_cols[1]:
                 filter_ranked = st.checkbox("Ranked Teams Only", value=False)
             with f_cols[2]:
                 filter_wins = st.slider("Min Wins (Either Team)", min_value=0, max_value=30, value=0)
 
         # Apply filters
+        POWER_5 = {"SEC", "ACC", "Big 12", "Big Ten", "Big East"}
         filtered_games = []
         for g in all_games:
             # Rank filter
@@ -768,8 +769,23 @@ elif st.session_state.page == "slate":
             # Conference filter
             home_conf = g.home_stats.conference if g.home_stats else ""
             away_conf = g.away_stats.conference if g.away_stats else ""
-            if filter_conf != "All" and filter_conf not in [home_conf, away_conf]:
-                continue
+            
+            if filter_conf:
+                valid_conf = False
+                matched_confs = set(filter_conf)
+                
+                # Check Power 5
+                if "Power 5" in matched_confs and (home_conf in POWER_5 or away_conf in POWER_5):
+                    valid_conf = True
+                # Check Mid-Major (anything not in Power 5 and is an actual conference)
+                elif "Mid-Major" in matched_confs and ((home_conf and home_conf not in POWER_5) or (away_conf and away_conf not in POWER_5)):
+                    valid_conf = True
+                # Check specific conferences
+                elif home_conf in matched_confs or away_conf in matched_confs:
+                    valid_conf = True
+                    
+                if not valid_conf:
+                    continue
                 
             # Win filter
             def get_wins(record: str) -> int:
@@ -1187,11 +1203,46 @@ elif st.session_state.page == "history":
 
     st.markdown("")
     
+    # Pre-fetch team conferences from the ledger (synced via seed_teams.py)
+    team_confs = {row["team_name"]: row["conference"] for row in ledger.db["team_stats"].rows}
+    POWER_5 = {"SEC", "ACC", "Big 12", "Big Ten", "Big East"}
+    
+    # ── PERFORMANCE FILTERS ───────────────────────────────────────────────────
+    with st.expander("⚙️ Filter Performance History", expanded=True):
+        perf_conf_options = sorted(list(set(team_confs.values()) - {""}))
+        perf_filter_conf = st.multiselect("Conferences (Select multiple)", options=["Power 5", "Mid-Major"] + perf_conf_options, default=[], key="perf_conf_filter")
+
     settled_all = settled + settled_parlays
-    if settled_all:
+    
+    # Apply filters
+    filtered_settled = []
+    for b in settled_all:
+        home_conf = team_confs.get(b.get('home_team', ''), "")
+        away_conf = team_confs.get(b.get('away_team', ''), "")
+        
+        if perf_filter_conf:
+            valid_conf = False
+            matched_confs = set(perf_filter_conf)
+            
+            # Check Power 5
+            if "Power 5" in matched_confs and (home_conf in POWER_5 or away_conf in POWER_5):
+                valid_conf = True
+            # Check Mid-Major (anything not in Power 5 and is an actual conference)
+            elif "Mid-Major" in matched_confs and ((home_conf and home_conf not in POWER_5) or (away_conf and away_conf not in POWER_5)):
+                valid_conf = True
+            # Check specific conferences
+            elif home_conf in matched_confs or away_conf in matched_confs:
+                valid_conf = True
+                
+            if not valid_conf:
+                continue
+                
+        filtered_settled.append(b)
+    
+    if filtered_settled:
         st.markdown('<div class="page-title" style="font-size:1.1rem">📊 Bankroll Trend</div>', unsafe_allow_html=True)
         # Sort chronologically by created date
-        sorted_settled = sorted(settled_all, key=lambda x: x.get("created_at", ""))
+        sorted_settled = sorted(filtered_settled, key=lambda x: x.get("created_at", ""))
         cum_pl = 0.0
         history_data = [{"Bet": 0, "Cumulative P/L (Units)": 0.0}]
         
