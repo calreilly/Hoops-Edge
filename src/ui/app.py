@@ -1184,12 +1184,74 @@ elif st.session_state.page == "history":
         cum_pl = 0.0
         history_data = [{"Bet": 0, "Cumulative P/L (Units)": 0.0}]
         
+        daily_pl = {}
+        daily_count = {}
+        
         for i, b in enumerate(sorted_settled, 1):
             if b.get("profit_loss") is not None:
-                cum_pl += b["profit_loss"]
+                pl = b["profit_loss"]
+                cum_pl += pl
+                
+                # Extract date string for calendar
+                dr = b.get("created_at", "")
+                if dr:
+                    day_str = dr[:10]
+                    daily_pl[day_str] = daily_pl.get(day_str, 0.0) + pl
+                    daily_count[day_str] = daily_count.get(day_str, 0) + 1
+                    
             history_data.append({"Bet": i, "Cumulative P/L (Units)": cum_pl})
             
         st.line_chart(history_data, x="Bet", y="Cumulative P/L (Units)", use_container_width=True, color="#22c55e")
+        
+        # --- Calendar Heatmap ---
+        if daily_pl:
+            st.markdown('<div class="page-title" style="font-size:1.1rem; margin-top:2rem;">📅 Profit/Loss Heatmap (Last 30 Days)</div>', unsafe_allow_html=True)
+            from datetime import timedelta
+            today = datetime.now().date()
+            start_date = today - timedelta(days=29)
+            
+            grid_html = '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom: 2rem;">'
+            
+            max_p = max([p for p in daily_pl.values() if p > 0] + [0.1])
+            min_l = min([p for p in daily_pl.values() if p < 0] + [-0.1])
+            
+            for i in range(30):
+                d = start_date + timedelta(days=i)
+                d_str = d.strftime("%Y-%m-%d")
+                
+                pl = daily_pl.get(d_str, 0.0)
+                count = daily_count.get(d_str, 0)
+                
+                if pl > 0:
+                    intensity = min(1.0, pl / max_p)
+                    bg = f"rgba(34, 197, 94, {max(0.3, intensity)})"
+                    border = "#16a34a"
+                elif pl < 0:
+                    intensity = min(1.0, abs(pl) / abs(min_l))
+                    bg = f"rgba(239, 68, 68, {max(0.3, intensity)})"
+                    border = "#dc2626"
+                else:
+                    bg = "#1e293b"
+                    border = "#334155"
+                    
+                tooltip = f"{d.strftime('%b %d')}&#10;{pl:+.2f}u&#10;{count} bets" if count > 0 else f"{d.strftime('%b %d')}&#10;No bets"
+                
+                grid_html += f'''
+                <div title="{tooltip}" style="
+                    width: 36px; height: 36px;
+                    background-color: {bg}; 
+                    border: 1px solid {border}; 
+                    border-radius: 6px;
+                    display: flex; align-items: center; justify-content: center;
+                    font-size: 0.75rem; color: rgba(255,255,255,0.85);
+                    cursor: pointer;
+                ">
+                {d.day}
+                </div>
+                '''
+            grid_html += '</div>'
+            st.markdown(grid_html, unsafe_allow_html=True)
+            
         st.markdown("<br>", unsafe_allow_html=True)
 
     st.markdown('<div class="page-title" style="font-size:1.1rem">📜 Settled Bets</div>', unsafe_allow_html=True)
