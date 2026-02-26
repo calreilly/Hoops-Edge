@@ -167,6 +167,43 @@ def fetch_live_rankings() -> dict[str, tuple[int, str]]:
         return {}
 
 
+def fetch_daily_records() -> dict[str, str]:
+    """
+    Fetch the current scoreboard to get the latest records for all unranked teams playing today.
+    Returns {team_name_lower: "Wins-Losses"}.
+    """
+    try:
+        resp = requests.get(
+            "https://site.api.espn.com/apis/site/v2/sports/basketball/"
+            "mens-college-basketball/scoreboard?limit=400",
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return {}
+        
+        data = resp.json()
+        daily_records: dict[str, str] = {}
+        for e in data.get("events", []):
+            for c in e.get("competitions", []):
+                for t in c.get("competitors", []):
+                    team = t.get("team", {})
+                    loc = team.get("location", "")
+                    nickname = team.get("name", "")
+                    name = f"{loc} {nickname}".strip().lower()
+                    
+                    records = t.get("records", [])
+                    overall = "0-0"
+                    for r in records:
+                        if r.get("type") in ["summary", "total"] or r.get("name") == "overall":
+                            overall = r.get("summary", "0-0")
+                    if name:
+                        daily_records[name] = overall
+        return daily_records
+    except Exception as e:
+        print(f"  [Records] Fetch failed: {e}")
+        return {}
+
+
 def _apply_live_ranking(
     stats: Optional[TeamStats],
     team_name: str,
@@ -208,11 +245,13 @@ def parse_odds_response(
     raw_games: list[dict],
     ledger: BetLedger,
     live_rankings: Optional[dict] = None,
+    daily_records: Optional[dict[str, str]] = None,
 ) -> list[Game]:
     """
     Transform The-Odds-API JSON into our Game Pydantic models,
     pulling team stats from the local SQLite DB if available.
-    live_rankings: optional {team_name_lower: rank} from fetch_live_rankings().
+    live_rankings: optional {team_name_lower: (rank, record)} from fetch_live_rankings().
+    daily_records: optional {team_name_lower: record} from fetch_daily_records().
     """
     games: list[Game] = []
 
@@ -293,6 +332,15 @@ def parse_odds_response(
         away_stats = _apply_live_ranking(
             _lookup_team_stats(away_team, ledger), away_team, live_rankings or {}
         )
+        
+        # Fallback for unranked teams not in local DB: use daily_records
+        if home_stats is None and daily_records:
+            hr = next((r for t, r in daily_records.items() if t in home_team.lower() or home_team.lower() in t), "0-0")
+            home_stats = TeamStats(team_id=home_team, team_name=home_team, record=hr, last_updated=datetime.now())
+            
+        if away_stats is None and daily_records:
+            ar = next((r for t, r in daily_records.items() if t in away_team.lower() or away_team.lower() in t), "0-0")
+            away_stats = TeamStats(team_id=away_team, team_name=away_team, record=ar, last_updated=datetime.now())
 
         games.append(Game(
             game_id=game_id,
@@ -326,9 +374,10 @@ def get_live_games(ledger: BetLedger) -> list[Game]:
 
     # Fetch live AP rankings BEFORE parsing odds (zero cost, no auth)
     live_rankings = fetch_live_rankings()
+    daily_records = fetch_daily_records()
 
     raw = fetch_fanduel_ncaab_odds()
-    games = parse_odds_response(raw, ledger, live_rankings=live_rankings)
+    games = parse_odds_response(raw, ledger, live_rankings=live_rankings, daily_records=daily_records)
 
     if not games:
         print("  ℹ️  No NCAAB games with FanDuel lines today. Using mock data.")
