@@ -83,19 +83,83 @@ st.set_page_config(
 )
 
 # ── Design System ──────────────────────────────────────────────────────────────
-COLORS = {
-    "bg":        "#080c14",
-    "surface":   "#111827",
-    "surface2":  "#1a2236",
-    "border":    "#1e2d45",
-    "accent":    "#f97316",
-    "gold":      "#fbbf24",
-    "green":     "#22c55e",
-    "red":       "#ef4444",
-    "muted":     "#6b7280",
-    "text":      "#f1f5f9",
-    "text2":     "#94a3b8",
+THEMES = {
+    "Default Dark": {
+        "bg":        "#080c14",
+        "surface":   "#111827",
+        "surface2":  "#1a2236",
+        "border":    "#1e2d45",
+        "accent":    "#f97316",
+        "gold":      "#fbbf24",
+        "green":     "#22c55e",
+        "red":       "#ef4444",
+        "muted":     "#6b7280",
+        "text":      "#f1f5f9",
+        "text2":     "#94a3b8",
+        "sidebar":   "linear-gradient(180deg, #0d1424 0%, #0a1020 100%)"
+    },
+    "Light": {
+        "bg":        "#f8fafc",
+        "surface":   "#ffffff",
+        "surface2":  "#f1f5f9",
+        "border":    "#e2e8f0",
+        "accent":    "#ea580c",
+        "gold":      "#d97706",
+        "green":     "#16a34a",
+        "red":       "#dc2626",
+        "muted":     "#94a3b8",
+        "text":      "#0f172a",
+        "text2":     "#475569",
+        "sidebar":   "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)"
+    },
+    "Monokai": {
+        "bg":        "#272822",
+        "surface":   "#3e3d32",
+        "surface2":  "#49483e",
+        "border":    "#1e1e1e",
+        "accent":    "#fd971f",
+        "gold":      "#e6db74",
+        "green":     "#a6e22e",
+        "red":       "#f92672",
+        "muted":     "#75715e",
+        "text":      "#f8f8f2",
+        "text2":     "#cfcfc2",
+        "sidebar":   "linear-gradient(180deg, #2c2d27 0%, #272822 100%)"
+    },
+    "Solarized Dark": {
+        "bg":        "#002b36",
+        "surface":   "#073642",
+        "surface2":  "#586e75",
+        "border":    "#001f27",
+        "accent":    "#cb4b16",
+        "gold":      "#b58900",
+        "green":     "#859900",
+        "red":       "#dc322f",
+        "muted":     "#586e75",
+        "text":      "#839496",
+        "text2":     "#93a1a1",
+        "sidebar":   "linear-gradient(180deg, #002b36 0%, #001f27 100%)"
+    },
+    "Solarized Light": {
+        "bg":        "#fdf6e3",
+        "surface":   "#eee8d5",
+        "surface2":  "#93a1a1",
+        "border":    "#d8d0b8",
+        "accent":    "#cb4b16",
+        "gold":      "#b58900",
+        "green":     "#859900",
+        "red":       "#dc322f",
+        "muted":     "#93a1a1",
+        "text":      "#657b83",
+        "text2":     "#586e75",
+        "sidebar":   "linear-gradient(180deg, #fdf6e3 0%, #eee8d5 100%)"
+    }
 }
+
+if "ui_theme" not in st.session_state:
+    st.session_state.ui_theme = "Default Dark"
+    
+COLORS = THEMES[st.session_state.ui_theme]
 
 st.markdown(f"""
 <style>
@@ -111,7 +175,7 @@ html, body, [class*="css"] {{
 
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {{
-    background: linear-gradient(180deg, #0d1424 0%, #0a1020 100%) !important;
+    background: {COLORS["sidebar"]} !important;
     border-right: 1px solid {COLORS["border"]};
     transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }}
@@ -482,8 +546,8 @@ div[data-testid="stButton"]:has(button[key="home_history"]) button:hover {{
 .gc-team {{ display:flex; flex-direction:column; align-items:center; min-width:100px; gap:.25rem; }}
 .gc-team img {{ border-radius:8px; }}
 .gc-rank {{ font-family:'Nunito',sans-serif; font-size:.65rem; font-weight:800; color:#fbbf24; }}
-.gc-tname {{ font-family:'Nunito',sans-serif; font-weight:800; font-size:.85rem; text-align:center; color:#f1f5f9; line-height:1.25; }}
-.gc-rec {{ font-size:.72rem; color:#6b7280; font-weight:600; }}
+.gc-tname {{ font-family:'Nunito',sans-serif; font-weight:800; font-size:.85rem; text-align:center; color:{COLORS["text"]}; line-height:1.25; }}
+.gc-rec {{ font-size:.72rem; color:{COLORS["muted"]}; font-weight:600; }}
 .gc-label {{ font-size:.62rem; color:#4b5563; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }}
 .gc-vs {{ font-family:'Nunito'; font-size:1rem; font-weight:900; color:#374151; padding:0 .5rem; }}
 .gc-mid {{ flex:1; display:flex; flex-direction:column; gap:.4rem; }}
@@ -491,7 +555,7 @@ div[data-testid="stButton"]:has(button[key="home_history"]) button:hover {{
 .gc-spread {{ font-size:.75rem; color:#a3e635; font-weight:700; }}
 .gc-leaders {{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.3rem; }}
 .gc-pill {{ background:rgba(255,255,255,.06); border-radius:7px; padding:.2rem .55rem; font-size:.7rem; color:#d1d5db; }}
-.gc-pill b {{ color:#f97316; }}
+.gc-pill b {{ color:{COLORS["accent"]}; }}
 .gc-blurb {{ background:rgba(96,165,250,.06); border:1px solid rgba(96,165,250,.12); border-radius:12px; padding:.85rem 1rem; font-size:.81rem; color:#cbd5e1; line-height:1.5; margin-top:.6rem; }}
 </style>
 """, unsafe_allow_html=True)
@@ -600,15 +664,35 @@ with st.sidebar:
     st.markdown(f"""
 <div style="background:{COLORS['surface']}; border:1px solid {COLORS['border']};
             border-radius:12px; padding:1rem; margin-top:0.5rem;">
-  <div style="font-size:0.7rem;color:#6b7280;text-transform:uppercase;letter-spacing:.08em">Bankroll</div>
-  <div style="font-size:1.6rem;font-weight:900;color:#f97316">{bankroll['balance_units']:.1f}u</div>
+  <div style="font-size:0.7rem;color:{COLORS['muted']};text-transform:uppercase;letter-spacing:.08em">Bankroll</div>
+  <div style="font-size:1.6rem;font-weight:900;color:{COLORS['accent']}">{bankroll['balance_units']:.1f}u</div>
   <div style="font-size:0.8rem;color:{pl_color};margin-top:0.2rem">
     {"▲" if total_pl >= 0 else "▼"} {abs(total_pl):.2f}u all-time
   </div>
-  <div style="font-size:0.8rem;color:#6b7280;margin-top:0.2rem">{wins}W – {losses}L</div>
+  <div style="font-size:0.8rem;color:{COLORS['muted']};margin-top:0.2rem">{wins}W – {losses}L</div>
 </div>
 """, unsafe_allow_html=True)
     st.markdown(f"<div style='font-size:0.7rem;color:#4b5563;text-align:center;margin-top:0.8rem'>{datetime.now().strftime('%b %d, %Y · %I:%M %p')}</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+    def on_theme_change():
+        st.session_state.ui_theme = st.session_state._theme_select
+        
+    st.selectbox(
+        "✨ Appearance", 
+        options=list(THEMES.keys()), 
+        index=list(THEMES.keys()).index(st.session_state.ui_theme),
+        key="_theme_select",
+        on_change=on_theme_change,
+        label_visibility="collapsed"
+    )
+
+    st.markdown("""
+<div style="font-size:0.65rem; color:#4b5563; text-align:center; padding-top:1rem; padding-bottom:1rem;">
+  Data powered by ESPN & Odds APIs<br>
+  Built for autonomous +EV hunting
+</div>
+""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1728,7 +1812,7 @@ elif st.session_state.page == "teams":
             # Prefer live ESPN rank over DB ranking
             espn_rank = summary.get("rank")  # directly from ESPN API
             effective_rank = espn_rank or db_ranking
-            rank_str = f' · <span style="background:#f97316;color:white;border-radius:20px;padding:2px 9px;font-size:.8rem;font-weight:900">#{effective_rank} AP</span>' if effective_rank else ""
+            rank_str = f' · <span style="background:{COLORS["accent"]};color:white;border-radius:20px;padding:2px 9px;font-size:.8rem;font-weight:900">#{effective_rank} AP</span>' if effective_rank else ""
             st.markdown(
                 f"## {summary.get('name', team_name)}{rank_str}",
                 unsafe_allow_html=True,
@@ -1799,7 +1883,7 @@ elif st.session_state.page == "teams":
             padding:.8rem;margin-bottom:.4rem;text-align:center">
 {f'<img src="{headshot}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;margin-bottom:.3rem">' if headshot else '<div style="width:56px;height:56px;border-radius:50%;background:#2d4a6e;margin:0 auto .3rem;line-height:56px;font-size:1.1rem">👤</div>'}
 <div style="font-weight:700;font-size:.85rem">{p['name']}</div>
-<div style="font-size:.72rem;color:#6b7280">#{jersey} · {pos_tag}{ht_tag} · {year_tag}</div>
+<div style="font-size:.72rem;color:{COLORS["muted"]}">#{jersey} · {pos_tag}{ht_tag} · {year_tag}</div>
 </div>"""
                         st.markdown(card_html, unsafe_allow_html=True)
                         with st.expander("Stats & Scouting"):
@@ -1855,9 +1939,9 @@ elif st.session_state.page == "teams":
                             f'<div style="background:{bg};border:1px solid {border};'
                             f'border-radius:8px;padding:.4rem .8rem;margin-bottom:.3rem;'
                             f'font-size:.85rem;display:flex;gap:.6rem;align-items:center">'
-                            f'<span style="color:#6b7280;min-width:82px">{date_str}</span>'
+                            f'<span style="color:{COLORS["muted"]};min-width:82px">{date_str}</span>'
                             f'<span style="flex:1;font-weight:600">{game["name"]}</span>'
-                            f'<span style="color:#94a3b8">{score_str}</span></div>',
+                            f'<span style="color:{COLORS["muted"]}>{score_str}</span></div>',
                             unsafe_allow_html=True,
                         )
 
@@ -2081,7 +2165,7 @@ elif st.session_state.page == "teams":
             with col:
                 rank = db_ranks.get(team_name)
                 rank_badge = (
-                    f'<div style="position:absolute;top:8px;left:8px;background:#f97316;'
+                    f'<div style="position:absolute;top:8px;left:8px;background:{COLORS["accent"]};'
                     f'color:white;font-size:.65rem;font-weight:900;padding:2px 7px;'
                     f'border-radius:20px">#{rank}</div>'
                 ) if rank else ""
