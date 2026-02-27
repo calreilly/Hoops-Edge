@@ -780,7 +780,7 @@ elif st.session_state.page == "slate":
                 
                 # Check Mid-Major
                 if "Mid-Major" in matched_confs:
-                    if (home_conf and home_conf not in POWER_5) or (away_conf and away_conf not in POWER_5):
+                    if home_conf not in POWER_5 or away_conf not in POWER_5:
                         valid_conf = True
                         
                 # Check specific individual conferences
