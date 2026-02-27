@@ -774,13 +774,17 @@ elif st.session_state.page == "slate":
                 matched_confs = set(filter_conf)
                 
                 # Check Power 5
-                if "Power 5" in matched_confs and (home_conf in POWER_5 or away_conf in POWER_5):
-                    valid_conf = True
-                # Check Mid-Major (anything not in Power 5 and is an actual conference)
-                elif "Mid-Major" in matched_confs and ((home_conf and home_conf not in POWER_5) or (away_conf and away_conf not in POWER_5)):
-                    valid_conf = True
-                # Check specific conferences
-                elif home_conf in matched_confs or away_conf in matched_confs:
+                if "Power 5" in matched_confs:
+                    if home_conf in POWER_5 or away_conf in POWER_5:
+                        valid_conf = True
+                
+                # Check Mid-Major
+                if "Mid-Major" in matched_confs:
+                    if (home_conf and home_conf not in POWER_5) or (away_conf and away_conf not in POWER_5):
+                        valid_conf = True
+                        
+                # Check specific individual conferences
+                if home_conf in matched_confs or away_conf in matched_confs:
                     valid_conf = True
                     
                 if not valid_conf:
@@ -1224,13 +1228,17 @@ elif st.session_state.page == "history":
             matched_confs = set(perf_filter_conf)
             
             # Check Power 5
-            if "Power 5" in matched_confs and (home_conf in POWER_5 or away_conf in POWER_5):
-                valid_conf = True
-            # Check Mid-Major (anything not in Power 5 and is an actual conference)
-            elif "Mid-Major" in matched_confs and ((home_conf and home_conf not in POWER_5) or (away_conf and away_conf not in POWER_5)):
-                valid_conf = True
-            # Check specific conferences
-            elif home_conf in matched_confs or away_conf in matched_confs:
+            if "Power 5" in matched_confs:
+                if home_conf in POWER_5 or away_conf in POWER_5:
+                    valid_conf = True
+            
+            # Check Mid-Major
+            if "Mid-Major" in matched_confs:
+                if (home_conf and home_conf not in POWER_5) or (away_conf and away_conf not in POWER_5):
+                    valid_conf = True
+                    
+            # Check specific individual conferences
+            if home_conf in matched_confs or away_conf in matched_confs:
                 valid_conf = True
                 
             if not valid_conf:
