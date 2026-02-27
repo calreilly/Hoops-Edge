@@ -746,11 +746,17 @@ elif st.session_state.page == "slate":
             st.session_state.game_checks = {}
 
         # ── FILTERS ───────────────────────────────────────────────────────────
+        ALL_D1_CONFS = [
+            "America East", "American", "ASUN", "Atlantic 10", "ACC", "Big 12", "Big East", 
+            "Big Sky", "Big South", "Big Ten", "Big West", "CAA", "CUSA", "Horizon", 
+            "Ivy", "MAAC", "MAC", "MEAC", "Missouri Valley", "Mountain West", "NEC", 
+            "OVC", "Patriot", "SEC", "SoCon", "Southland", "SWAC", "Summit", "Sun Belt", 
+            "WAC", "WCC"
+        ]
         with st.expander("⚙️ Filter Games", expanded=True):
             f_cols = st.columns(3)
             with f_cols[0]:
-                conf_options = sorted(list({row["conference"] for row in ledger.db["team_stats"].rows if row["conference"]}))
-                filter_conf = st.multiselect("Conferences (Select multiple)", options=["Power 5", "Mid-Major"] + conf_options, default=[])
+                filter_conf = st.multiselect("Conferences (Select multiple)", options=["Power 5", "Mid-Major"] + ALL_D1_CONFS, default=[])
             with f_cols[1]:
                 filter_ranked = st.checkbox("Ranked Teams Only", value=False)
             with f_cols[2]:
@@ -1214,9 +1220,15 @@ elif st.session_state.page == "history":
     POWER_5 = {"SEC", "ACC", "Big 12", "Big Ten", "Big East"}
     
     # ── PERFORMANCE FILTERS ───────────────────────────────────────────────────
+    ALL_D1_CONFS = [
+        "America East", "American", "ASUN", "Atlantic 10", "ACC", "Big 12", "Big East", 
+        "Big Sky", "Big South", "Big Ten", "Big West", "CAA", "CUSA", "Horizon", 
+        "Ivy", "MAAC", "MAC", "MEAC", "Missouri Valley", "Mountain West", "NEC", 
+        "OVC", "Patriot", "SEC", "SoCon", "Southland", "SWAC", "Summit", "Sun Belt", 
+        "WAC", "WCC"
+    ]
     with st.expander("⚙️ Filter Performance History", expanded=True):
-        perf_conf_options = sorted(list(set(team_confs.values()) - {""}))
-        perf_filter_conf = st.multiselect("Conferences (Select multiple)", options=["Power 5", "Mid-Major"] + perf_conf_options, default=[], key="perf_conf_filter")
+        perf_filter_conf = st.multiselect("Conferences (Select multiple)", options=["Power 5", "Mid-Major"] + ALL_D1_CONFS, default=[], key="perf_conf_filter")
 
     settled_all = settled + settled_parlays
     
