@@ -749,8 +749,7 @@ elif st.session_state.page == "slate":
         with st.expander("⚙️ Filter Games", expanded=True):
             f_cols = st.columns(3)
             with f_cols[0]:
-                conf_options = sorted(list({g.home_stats.conference for g in all_games if g.home_stats and g.home_stats.conference} | 
-                                                     {g.away_stats.conference for g in all_games if g.away_stats and g.away_stats.conference} - {""}))
+                conf_options = sorted(list({row["conference"] for row in ledger.db["team_stats"].rows if row["conference"]}))
                 filter_conf = st.multiselect("Conferences (Select multiple)", options=["Power 5", "Mid-Major"] + conf_options, default=[])
             with f_cols[1]:
                 filter_ranked = st.checkbox("Ranked Teams Only", value=False)
