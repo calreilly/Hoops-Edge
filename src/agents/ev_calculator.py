@@ -39,13 +39,18 @@ STEP 1 — Baseline Stats & Form: Summarize each team's offensive/defensive effi
          to identify hot/cold streaks.
 STEP 2 — Context & Injuries: Factor in the **live injury report** constraints. If a 
          star player is noted as OUT or questionable, adjust your baseline expectations.
-STEP 3 — Matchup Analysis: Identify key stylistic advantages (e.g., "Team A's 
+STEP 3 — User Historical ROI: You are provided with the user's personal betting 
+         Profit/Loss on each team. **If the user has a strong positive ROI (> +1.0u) 
+         or a winning record on a team, explicitly bump their projected win probability.** 
+         If the user bleeds money on them (< -1.0u), penalize them.
+STEP 4 — Matchup Analysis: Identify key stylistic advantages (e.g., "Team A's 
          elite 3-point defense smothers Team B's pace-and-space offense").
-STEP 4 — Probability Estimation: State your estimated win probability for each 
+         Ensure this incorporates the Historical ROI biases.
+STEP 5 — Probability Estimation: State your estimated win probability for each 
          side, with explicit justification.
-STEP 5 — EV Calculation: EV = (your_prob * decimal_odds) - 1
+STEP 6 — EV Calculation: EV = (your_prob * decimal_odds) - 1
          If EV > 0.03 (3%) → flag as a potential bet.
-STEP 6 — Confidence Check: Rate your confidence (0.0–1.0). If confidence < 0.55, 
+STEP 7 — Confidence Check: Rate your confidence (0.0–1.0). If confidence < 0.55, 
          reduce unit size. Never recommend a bet with confidence < 0.50.
 
 ## Unit Sizing (Kelly Criterion, quarter-Kelly)
@@ -92,6 +97,8 @@ def build_game_prompt(
     side: BetSide,
     home_recent: str = "No recent form data.",
     away_recent: str = "No recent form data.",
+    home_roi: str = "Historical ROI: 0W-0L (+0.0u)",
+    away_roi: str = "Historical ROI: 0W-0L (+0.0u)",
 ) -> str:
     """Build the user message for the agent to analyze a specific market."""
     
@@ -172,10 +179,12 @@ Implied Probability: {odds.implied_probability:.1%}
 {game.home_team} (HOME):
 {home_block}
 LAST 5 GAMES: {home_recent}
+{home_roi}
 
 {game.away_team} (AWAY):
 {away_block}
 LAST 5 GAMES: {away_recent}
+{away_roi}
 
 ## Injury / News Context
 {game.injury_notes or 'No significant injury news available.'}
@@ -195,6 +204,8 @@ async def analyze_game_market(
     side: BetSide,
     home_recent: str = "No recent form data.",
     away_recent: str = "No recent form data.",
+    home_roi: str = "Historical ROI: 0W-0L (+0.0u)",
+    away_roi: str = "Historical ROI: 0W-0L (+0.0u)",
 ) -> BetRecommendation:
     """
     Run the EV agent for one specific market of a game.
@@ -207,7 +218,11 @@ async def analyze_game_market(
     if game.home_stats is None and game.away_stats is None:
         raise ValueError("No stats available for either team — skipping LLM call")
 
-    prompt = build_game_prompt(game, bet_type, side, home_recent, away_recent)
+    prompt = build_game_prompt(
+        game, bet_type, side, 
+        home_recent, away_recent, 
+        home_roi, away_roi
+    )
     result = await ev_agent.run(prompt)
     rec = result.output
 
@@ -291,13 +306,14 @@ async def _analyze_game_all_markets(
 
 
 
-async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlate:
+async def analyze_full_slate(games: list[Game], max_games: int = 5, ledger: Any = None) -> DailySlate:
     """
     Fully concurrent analysis: all games AND all markets run in parallel.
     Games are pre-ranked by quality before LLM calls:
       1. Data richness — prefer games where we have stats for both teams
       2. Line pricing  — prefer less juice (higher american_odds = user-friendlier)
     max_games caps slate size to control API cost (default: 5 games).
+    If ledger is provided, it pulls historical betting ROI to append to prompt context.
     """
     from datetime import date
 
@@ -380,7 +396,19 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5) -> DailySlat
         try:
             h_form = recent_forms.get(getattr(game, '_home_eid', ''), "No recent form data.")
             a_form = recent_forms.get(getattr(game, '_away_eid', ''), "No recent form data.")
-            rec = await analyze_game_market(game, bet_type, side, h_form, a_form)
+            
+            h_roi_str = "Historical ROI: 0W-0L (+0.0u)"
+            a_roi_str = "Historical ROI: 0W-0L (+0.0u)"
+            
+            if ledger:
+                h_roi = ledger.get_team_historical_roi(game.home_team)
+                a_roi = ledger.get_team_historical_roi(game.away_team)
+                if h_roi["total_bets"] > 0:
+                    h_roi_str = f"Historical ROI: {h_roi['wins']}W-{h_roi['losses']}L ({h_roi['net_units']:+.1f}u)"
+                if a_roi["total_bets"] > 0:
+                    a_roi_str = f"Historical ROI: {a_roi['wins']}W-{a_roi['losses']}L ({a_roi['net_units']:+.1f}u)"
+
+            rec = await analyze_game_market(game, bet_type, side, h_form, a_form, h_roi_str, a_roi_str)
             return rec
         except Exception as e:
             print(f"  [Warning] Skipped {game.away_team} @ {game.home_team} "

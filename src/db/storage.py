@@ -198,6 +198,56 @@ class BetLedger:
     def get_bankroll(self) -> dict:
         return list(self.db["bankroll"].rows)[0]
 
+    def get_team_historical_roi(self, team_name: str) -> dict:
+        """
+        Calculates personal betting ROI and W/L record explicitly betting *ON* a specific team.
+        Returns aggregated profit/loss units and record from settled single bets.
+        """
+        # Query settled bets where the team was involved
+        params = [team_name, team_name, "settled"]
+        rows = list(self.db["bets"].rows_where(
+            "(home_team = ? OR away_team = ?) AND status = ?", 
+            params
+        ))
+        
+        wins = losses = pushes = 0
+        units_won = units_lost = 0.0
+        
+        for bet in rows:
+            # We only care about bets placed ON this team (spread or ML).
+            # If side=away and team_name=away_team -> Bet was ON them.
+            # If side=home and team_name=home_team -> Bet was ON them.
+            is_bet_on_team = (
+                (bet["side"] == "home" and bet["home_team"] == team_name) or
+                (bet["side"] == "away" and bet["away_team"] == team_name)
+            )
+            
+            if not is_bet_on_team:
+                continue
+                
+            res = bet.get("result")
+            pnl = bet.get("profit_loss", 0.0) or 0.0
+            
+            if res == "win":
+                wins += 1
+                units_won += pnl
+            elif res == "loss":
+                losses += 1
+                units_lost += abs(pnl)
+            elif res == "push":
+                pushes += 1
+                
+        return {
+            "team": team_name,
+            "wins": wins,
+            "losses": losses,
+            "pushes": pushes,
+            "units_won": units_won,
+            "units_lost": units_lost,
+            "net_units": units_won - units_lost,
+            "total_bets": wins + losses + pushes
+        }
+
     # ── Parlays ───────────────────────────────────────────────────────────────
 
     def save_parlay(self, leg_ids: list[str], american_odds: int, implied_prob: float, units: float) -> str:

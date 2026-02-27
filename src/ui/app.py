@@ -929,7 +929,7 @@ elif st.session_state.page == "slate":
                     chosen = [g for g in all_games if g.game_id in selected_ids]
                     with st.spinner(f"🤖 Running EV analysis on {len(chosen)} game(s)..."):
                         try:
-                            slate = run_async(analyze_full_slate(chosen, max_games=len(chosen)))
+                            slate = run_async(analyze_full_slate(chosen, max_games=len(chosen), ledger=ledger))
                             st.session_state.slate = slate
                             st.session_state.slate_error = None
                             st.session_state.page = "picks"
@@ -1640,7 +1640,7 @@ elif st.session_state.page == "search":
                     if st.button(f"Analyze", key=f"hot_{g.game_id}", use_container_width=True):
                         with st.spinner("🤖 Running EV analysis..."):
                             try:
-                                slate = run_async(analyze_full_slate([g], max_games=1))
+                                slate = run_async(analyze_full_slate([g], max_games=1, ledger=ledger))
                                 st.session_state.slate = slate
                                 st.session_state.slate_error = None
                                 st.session_state.page = "picks"
@@ -1711,7 +1711,7 @@ elif st.session_state.page == "search":
                             with st.spinner("🤖 Running EV analysis on this game..."):
                                 try:
                                     # run_async is defined globally in app.py
-                                    slate = run_async(analyze_full_slate([g], max_games=1))
+                                    slate = run_async(analyze_full_slate([g], max_games=1, ledger=ledger))
                                     st.session_state.slate = slate
                                     st.session_state.slate_error = None
                                     st.session_state.page = "picks"
