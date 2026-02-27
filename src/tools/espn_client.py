@@ -432,6 +432,46 @@ def get_all_espn_teams() -> dict[str, int]:
         get_espn_team_id("Duke")
     return _ALL_TEAMS_DISPLAY_MAP
 
+
+_ALL_STANDINGS_CACHE = {}
+
+def get_all_standings() -> dict[str, dict]:
+    """
+    Fetch standing info for all D1 teams.
+    Returns: { "Team Name" : {"conference": "ACC", "conf_win_pct": 0.850} }
+    """
+    global _ALL_STANDINGS_CACHE
+    if _ALL_STANDINGS_CACHE:
+        return _ALL_STANDINGS_CACHE
+        
+    url = f"{BASE}/standings"
+    d = _get(url)
+    if not d:
+        return {}
+        
+    for conf in d.get("children", []):
+        c_name = conf.get("name", "").replace(" Conference", "").replace("Athletic ", "")
+        if c_name == "Atlantic Coast": c_name = "ACC"
+        elif c_name == "Mid-Eastern Athletic": c_name = "MEAC"
+        elif c_name == "Southeastern": c_name = "SEC"
+        
+        entries = conf.get("standings", {}).get("entries", [])
+        for entry in entries:
+            t = entry.get("team", {})
+            t_name = t.get("displayName", "")
+            
+            wpct = 0.0
+            for stat in entry.get("stats", []):
+                if stat.get("type") == "vsconf_winpercent":
+                    wpct = float(stat.get("value", 0.0))
+                    
+            _ALL_STANDINGS_CACHE[t_name] = {
+                "conference": c_name,
+                "conf_win_pct": wpct
+            }
+            
+    return _ALL_STANDINGS_CACHE
+
 TEAM_ESPN_IDS: dict[str, int] = {
     "Auburn Tigers":             2,
     "Houston Cougars":           248,

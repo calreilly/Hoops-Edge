@@ -1995,16 +1995,34 @@ elif st.session_state.page == "teams":
     db_ranks: dict[str, int] = {name: s.get("ranking") for name, s in db_stats.items() if s.get("ranking")}
 
     # Filter bar
-    f1, f2 = st.columns([3, 1])
+    f1, f2, f3 = st.columns([2, 5, 2])
     search_q = f1.text_input("", placeholder="🔍 Search teams...", label_visibility="collapsed")
-    sort_by = f2.selectbox("Sort by", ["AP Rank", "Alphabetical", "Offensive Efficiency", "Defensive Efficiency", "Pace"], label_visibility="collapsed")
+    
+    from src.tools.espn_client import get_all_standings
+    all_standings = get_all_standings()
+    
+    ALL_D1_CONFS = [
+        "America East", "American", "ASUN", "Atlantic 10", "ACC", "Big 12", "Big East", 
+        "Big Sky", "Big South", "Big Ten", "Big West", "CAA", "CUSA", "Horizon", 
+        "Ivy", "MAAC", "MAC", "MEAC", "Missouri Valley", "Mountain West", "NEC", 
+        "OVC", "Patriot", "SEC", "SoCon", "Southland", "SWAC", "Summit", "Sun Belt", 
+        "WAC", "WCC"
+    ]
+    team_filter_conf = f2.multiselect("Conferences", options=["Power 5", "Mid-Major"] + ALL_D1_CONFS, default=[], label_visibility="collapsed", placeholder="Select conferences...")
+    sort_by = f3.selectbox("Sort by", ["AP Rank", "Alphabetical", "Offensive Efficiency", "Defensive Efficiency", "Pace"], label_visibility="collapsed")
 
     # Sort logic
     def sort_key(item):
         name, _ = item
         s = db_stats.get(name, {})
         rank = s.get("ranking")
+        standings = all_standings.get(name, {})
         
+        # Override sort if filtering by conference, as requested
+        if team_filter_conf:
+            wpct = standings.get("conf_win_pct", 0.0)
+            return (0, -wpct)
+            
         if sort_by == "AP Rank":
             return (0, rank) if rank else (1, name)
         elif sort_by == "Alphabetical":
@@ -2023,6 +2041,30 @@ elif st.session_state.page == "teams":
         return (0, rank) if rank else (1, name)
 
     sorted_teams = sorted(all_teams_map.items(), key=sort_key)
+
+    if team_filter_conf:
+        POWER_5 = {"SEC", "ACC", "Big 12", "Big Ten", "Big East"}
+        matched_confs = set(team_filter_conf)
+        
+        filtered_by_conf = []
+        for n, i in sorted_teams:
+            c = all_standings.get(n, {}).get("conference", "")
+            if not c:
+                continue # Skip teams outside D1 standings if hard filtering is active
+                
+            valid = False
+            is_p5 = c in POWER_5
+            
+            if "Power 5" in matched_confs and is_p5:
+                valid = True
+            if "Mid-Major" in matched_confs and not is_p5:
+                valid = True
+            if c in matched_confs:
+                valid = True
+                
+            if valid:
+                filtered_by_conf.append((n, i))
+        sorted_teams = filtered_by_conf
 
     if search_q:
         sorted_teams = [(n, i) for n, i in sorted_teams
