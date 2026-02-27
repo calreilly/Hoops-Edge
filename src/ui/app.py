@@ -773,15 +773,15 @@ elif st.session_state.page == "slate":
                 valid_conf = False
                 matched_confs = set(filter_conf)
                 
+                is_p5 = (home_conf in POWER_5) or (away_conf in POWER_5)
+                
                 # Check Power 5
-                if "Power 5" in matched_confs:
-                    if home_conf in POWER_5 or away_conf in POWER_5:
-                        valid_conf = True
+                if "Power 5" in matched_confs and is_p5:
+                    valid_conf = True
                 
                 # Check Mid-Major
-                if "Mid-Major" in matched_confs:
-                    if home_conf not in POWER_5 or away_conf not in POWER_5:
-                        valid_conf = True
+                if "Mid-Major" in matched_confs and not is_p5:
+                    valid_conf = True
                         
                 # Check specific individual conferences
                 if home_conf in matched_confs or away_conf in matched_confs:
@@ -1227,15 +1227,15 @@ elif st.session_state.page == "history":
             valid_conf = False
             matched_confs = set(perf_filter_conf)
             
+            is_p5 = (home_conf in POWER_5) or (away_conf in POWER_5)
+            
             # Check Power 5
-            if "Power 5" in matched_confs:
-                if home_conf in POWER_5 or away_conf in POWER_5:
-                    valid_conf = True
+            if "Power 5" in matched_confs and is_p5:
+                valid_conf = True
             
             # Check Mid-Major
-            if "Mid-Major" in matched_confs:
-                if (home_conf and home_conf not in POWER_5) or (away_conf and away_conf not in POWER_5):
-                    valid_conf = True
+            if "Mid-Major" in matched_confs and not is_p5:
+                valid_conf = True
                     
             # Check specific individual conferences
             if home_conf in matched_confs or away_conf in matched_confs:
