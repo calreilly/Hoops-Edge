@@ -444,17 +444,36 @@ def get_all_standings() -> dict[str, dict]:
     if _ALL_STANDINGS_CACHE:
         return _ALL_STANDINGS_CACHE
         
-    url = f"{BASE}/standings"
+    url = BASE.replace("/site/v2", "/v2") + "/standings"
     d = _get(url)
     if not d:
         return {}
         
     for conf in d.get("children", []):
-        c_name = conf.get("name", "").replace(" Conference", "").replace("Athletic ", "")
-        if c_name == "Atlantic Coast": c_name = "ACC"
-        elif c_name == "Mid-Eastern Athletic": c_name = "MEAC"
-        elif c_name == "Southeastern": c_name = "SEC"
+        c_name = conf.get("name", "").replace(" Conference", "").replace(" Athletic", "")
         
+        CONF_MAP = {
+            "Atlantic Coast": "ACC",
+            "Mid-Eastern": "MEAC",
+            "Southeastern": "SEC",
+            "Coastal Association": "CAA",
+            "Conference USA": "CUSA",
+            "Horizon League": "Horizon",
+            "Ivy League": "Ivy",
+            "Metro Atlantic": "MAAC",
+            "Mid-American": "MAC",
+            "Northeast": "NEC",
+            "Ohio Valley": "OVC",
+            "Patriot League": "Patriot",
+            "Southern": "SoCon",
+            "Southwestern": "SWAC",
+            "Summit League": "Summit",
+            "West Coast": "WCC",
+            "Western": "WAC"
+        }
+        if c_name in CONF_MAP:
+            c_name = CONF_MAP[c_name]
+            
         entries = conf.get("standings", {}).get("entries", [])
         for entry in entries:
             t = entry.get("team", {})

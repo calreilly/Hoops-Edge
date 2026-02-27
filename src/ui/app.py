@@ -2009,7 +2009,10 @@ elif st.session_state.page == "teams":
         "WAC", "WCC"
     ]
     team_filter_conf = f2.multiselect("Conferences", options=["Power 5", "Mid-Major"] + ALL_D1_CONFS, default=[], label_visibility="collapsed", placeholder="Select conferences...")
-    sort_by = f3.selectbox("Sort by", ["AP Rank", "Alphabetical", "Offensive Efficiency", "Defensive Efficiency", "Pace"], label_visibility="collapsed")
+    
+    sort_options = ["AP Rank", "Conference Win %", "Alphabetical", "Offensive Efficiency", "Defensive Efficiency", "Pace"]
+    default_idx = 1 if team_filter_conf else 0
+    sort_by = f3.selectbox("Sort by", sort_options, index=default_idx, label_visibility="collapsed")
 
     # Sort logic
     def sort_key(item):
@@ -2018,12 +2021,10 @@ elif st.session_state.page == "teams":
         rank = s.get("ranking")
         standings = all_standings.get(name, {})
         
-        # Override sort if filtering by conference, as requested
-        if team_filter_conf:
-            wpct = standings.get("conf_win_pct", 0.0)
+        if sort_by == "Conference Win %":
+            wpct = standings.get("conf_win_pct", -1.0)
             return (0, -wpct)
-            
-        if sort_by == "AP Rank":
+        elif sort_by == "AP Rank":
             return (0, rank) if rank else (1, name)
         elif sort_by == "Alphabetical":
             return name
