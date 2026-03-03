@@ -77,31 +77,33 @@ See [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) for the full 15-week breakdown.
 
 #### Step 1 — Load Games and Select Matchups
 
-Open **Today's Slate** from the sidebar. Click **Load Today's Games** to pull live FanDuel odds. Check the checkbox beneath any game card you want to analyze — the top bar updates to show how many you have selected.
+Open **Today's Slate** from the sidebar. Click **Load Today's Games** to pull live FanDuel odds for every game on the day's NCAAB slate. Check the checkbox beneath any game card you want to analyze — the top bar updates to show how many you have selected, and the **▶ Analyze** and **🪄 AI Previews** buttons activate.
 
-![Step 1 – Select games from the slate](docs/screenshots/step1_select_games.png)
+![Step 1 – Two games selected from the slate: Iowa State vs Arizona and Duke vs NC State. The control bar shows "Selected 2 for analysis."](docs/screenshots/step1_select_games.png)
 
-> **Tip:** Use the filters in the sidebar (conference, spread size, win threshold) to narrow down the slate before selecting.
+> **Tip:** Use the sidebar filters (conference, spread size, win threshold) to narrow a slate of 30+ games down to the highest-quality matchups before selecting.
 
 ---
 
 #### Step 2 — Generate AI Previews
 
-With games selected, click **🪄 AI Previews (N)** at the top. The agent generates a concise edge summary for each selected game — highlighting key matchup factors, pace mismatches, or line inefficiencies — displayed directly on the game card in purple.
+With games selected, click **🪄 AI Previews (N)**. The agent reads the matchup data and generates a concise edge summary for each game — surfacing pace mismatches, 3PT reliance, ATS trends, and defensive vulnerabilities — displayed in purple directly on the game card. Use this as a quick sanity check before committing API credits to a full analysis.
 
-![Step 2 – AI-generated edge previews appear on each selected game card](docs/screenshots/step2_ai_previews.png)
+![Step 2 – AI Edge previews appear on both game cards. For Iowa State vs Arizona, the agent flags Iowa State's slower pace facing Arizona's transition offense and notes the importance of limiting 3PT opportunities.](docs/screenshots/step2_ai_previews.png)
 
-> **Tip:** Use previews as a quick gut-check before committing to a full EV analysis run, which uses more API credits.
+> **Tip:** Previews are fast and cheap. Full EV analysis (next step) runs the complete 5-step Chain-of-Thought reasoning and costs more OpenAI tokens.
 
 ---
 
-#### Step 3 — Run Full EV Analysis
+#### Step 3 — Run Full EV Analysis & Review Picks
 
-Click **▶ Analyze N Games** to run the full Chain-of-Thought EV analysis. The agent evaluates each market (spread, total, moneyline), calculates true implied probability, applies quarter-Kelly sizing, and surfaces only bets above the +3.5% EV threshold. Results appear automatically on the **Picks & Analysis** page.
+Click **▶ Analyze N Games** to run the complete Chain-of-Thought EV analysis. The agent evaluates each market (spread, total, moneyline), calculates the true no-vig implied probability, applies quarter-Kelly unit sizing, and surfaces only bets that clear the +3.5% EV threshold. Results appear automatically on the **Picks & Analysis** page.
 
-![Step 3 – Bet recommendations with EV scores and Chain-of-Thought reasoning](docs/screenshots/step3_analysis_results.png)
+Expand the **🧠 Reasoning** section on any bet card to read the agent's full 5-step justification — including efficiency metrics, recent form, defensive vulnerabilities, historical ROI, and the final win probability estimate.
 
-> **Tip:** Expand the **🧠 Reasoning** section on any bet card to read the agent's full Chain-of-Thought justification before approving.
+![Step 3 – Duke Blue Devils @ NC State: SPREAD HOME +11.5 flagged at +4.6% EV with 74% confidence. The 5-step Chain-of-Thought reasoning is expanded, citing Duke's defensive efficiency, NC State's recent losses to Virginia and Notre Dame, and a projected 70% win probability.](docs/screenshots/step3_analysis_results.png)
+
+> **Tip:** Click **📌 Place Bet** to move the bet to your pending ledger, or **✖ Skip** to dismiss it. Placed bets are tracked against your bankroll and settled from the **Pending Bets** page.
 
 ---
 
@@ -109,25 +111,21 @@ Click **▶ Analyze N Games** to run the full Chain-of-Thought EV analysis. The 
 
 #### Step 4 — Search for a Team
 
-Open **Teams** from the sidebar. Type any team name into the search box to filter the grid of all 362 Division I programs instantly. Click **View Profile** on any card to open the full team profile.
+Open **Teams** from the sidebar. Type any team name into the search box to instantly filter the full grid of 362 Division I programs. The grid supports search by nickname, city, or official name across Men's College Basketball, Women's College, and NBA. Click **View** on any card to open the full team profile.
 
-![Step 4 – Searching for "UConn" in the Teams Explorer](docs/screenshots/step4_teams_search.png)
-
----
-
-#### Step 5 — View the Season Schedule
-
-On the team profile page, click the **📅 Schedule** tab. This pulls the full current-season schedule from ESPN, showing results, opponents, and game-by-game outcomes — useful for spotting hot/cold streaks heading into a matchup.
-
-![Step 5 – UConn Huskies season schedule with results](docs/screenshots/step5_uconn_schedule.png)
+![Step 4 – Typing "UConn" into the search box instantly filters the grid to the UConn Huskies card.](docs/screenshots/step4_teams_search.png)
 
 ---
 
-#### Step 6 — Read the AI Scouting Overview
+#### Step 5 — Explore the Full Team Profile
 
-Click the **🧠 Facts** tab. Hoops Edge generates a structured scouting report powered by GPT-4o-mini, covering offensive and defensive tendencies, key players, recent form, and situational strengths. The overview is cached so it loads instantly on repeat visits.
+The team profile modal displays a live-updated header showing the overall record, home/road splits, AP ranking badge, conference standing, and a scrollable ribbon of recent game results. Three tabs organize the data:
 
-![Step 6 – AI-generated scouting overview for UConn Huskies](docs/screenshots/step6_uconn_facts.png)
+- **📋 Roster** — Full player grid with headshots, position, height, year, and expandable Stats & Scouting sections for each player
+- **📅 Schedule** — Full season schedule pulled from ESPN with results, opponents, and game-by-game outcomes for spotting hot/cold streaks
+- **🧠 Facts** — AI Scouting Overview (GPT-4o-mini) covering offensive/defensive tendencies, key players, pace, 3PT rate, and situational strengths — cached for instant repeat loads
 
-> **Tip:** The **Facts** tab also shows adjusted efficiency metrics (AdjO / AdjD), pace rating, 3PT rate, and the team's best wins and worst losses from the current season.
+![Step 5 – UConn Huskies team profile: 27-3 overall · 15-2 home · 9-1 road · #4 AP · 1st in Big East. The Roster tab shows the full player grid with headshots for Solo Ball, Silas Demary Jr., Brezon Eleraji, and more.](docs/screenshots/step5_uconn_profile.png)
+
+> **Tip:** Use the **Schedule** tab to spot momentum shifts before a game — a team on a 5-game win streak vs. a team that just lost three straight is context the betting lines may not fully price in.
 
