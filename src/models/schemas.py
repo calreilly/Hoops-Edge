@@ -35,6 +35,7 @@ class TeamStats(BaseModel):
     ats_record: Optional[str] = Field(None, description="Against the spread record, e.g. '12-8'")
     conference: Optional[str] = None
     ranking: Optional[int] = Field(None, description="AP Top 25 ranking, None if unranked")
+    ai_overview: Optional[str] = Field(None, description="Cached AI-generated stylistic scouting report")
     last_updated: Optional[datetime] = None
 
 
@@ -66,18 +67,48 @@ class Odds(BaseModel):
 class Game(BaseModel):
     """Represents a scheduled CBB game with both sides' lines."""
     game_id: str
+    sport_key: str = "basketball_ncaab"
     home_team: str
     away_team: str
     game_time: datetime
-    home_odds: Optional[Odds] = None       # spread
-    away_odds: Optional[Odds] = None       # spread
-    total_over_odds: Optional[Odds] = None
-    total_under_odds: Optional[Odds] = None
-    home_ml: Optional[Odds] = None         # moneyline
-    away_ml: Optional[Odds] = None         # moneyline
+    home_odds: dict[str, Odds] = Field(default_factory=dict)       # sportsbook -> spread
+    away_odds: dict[str, Odds] = Field(default_factory=dict)       # sportsbook -> spread
+    total_over_odds: dict[str, Odds] = Field(default_factory=dict)
+    total_under_odds: dict[str, Odds] = Field(default_factory=dict)
+    home_ml: dict[str, Odds] = Field(default_factory=dict)         # sportsbook -> moneyline
+    away_ml: dict[str, Odds] = Field(default_factory=dict)         # sportsbook -> moneyline
     home_stats: Optional[TeamStats] = None
     away_stats: Optional[TeamStats] = None
     injury_notes: Optional[str] = Field(None, description="Plain-text summary of relevant injuries")
+
+    def get_true_implied_probability(self, bet_type: BetType, side: BetSide, book: str = "fanduel") -> Optional[float]:
+        """Mathematically removes the sportsbook vigorish to find the true break-even probability for EV calculation."""
+        # Find the opposing sides to calculate overround
+        if bet_type == BetType.SPREAD:
+            o1, o2 = self.home_odds.get(book), self.away_odds.get(book)
+        elif bet_type == BetType.TOTAL:
+            o1, o2 = self.total_over_odds.get(book), self.total_under_odds.get(book)
+        elif bet_type == BetType.MONEYLINE:
+            o1, o2 = self.home_ml.get(book), self.away_ml.get(book)
+        else:
+            return None
+            
+        if o1 is None or o2 is None:
+            return None # Missing counterpart, cannot devig
+            
+        p1 = o1.implied_probability
+        p2 = o2.implied_probability
+        total_implied = p1 + p2
+        
+        # Determine the raw probability of the specific side requested
+        if bet_type == BetType.SPREAD:
+            target_p = p1 if side == BetSide.HOME else p2
+        elif bet_type == BetType.TOTAL:
+            target_p = p1 if side == BetSide.OVER else p2
+        elif bet_type == BetType.MONEYLINE:
+            target_p = p1 if side == BetSide.HOME else p2
+            
+        return target_p / total_implied
 
 
 class EVAnalysis(BaseModel):
@@ -106,6 +137,10 @@ class EVAnalysis(BaseModel):
     confidence: float = Field(
         ..., ge=0.0, le=1.0,
         description="Agent's confidence in its own probability estimate (0.0-1.0)"
+    )
+    kelly_multiplier: float = Field(
+        default=0.25, ge=0.0, le=1.0,
+        description="Dynamic Kelly fraction (e.g., 0.1 for high variance underdogs, 0.25 standard, 0.5 for absolute lock maximum conviction plays)"
     )
 
 
@@ -172,7 +207,7 @@ class DailySlate(BaseModel):
         """
         # Group recommended bets by (game_id, bet_type)
         from collections import defaultdict
-        groups: dict = defaultdict(list)
+        groups: defaultdict[tuple[str, BetType], list[BetRecommendation]] = defaultdict(list)
         for bet in self.bets:
             if bet.is_recommended:
                 key = (bet.game_id, bet.bet_type)

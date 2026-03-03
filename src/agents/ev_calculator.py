@@ -53,9 +53,12 @@ STEP 6 — EV Calculation: EV = (your_prob * decimal_odds) - 1
 STEP 7 — Confidence Check: Rate your confidence (0.0–1.0). If confidence < 0.55, 
          reduce unit size. Never recommend a bet with confidence < 0.50.
 
-## Unit Sizing (Kelly Criterion, quarter-Kelly)
-units = (edge / (decimal_odds - 1)) * 0.25
-Cap maximum units at 3.0 per bet. Never recommend a parlay of more than 3 legs.
+## Unit Sizing (Dynamic Kelly Multiplier)
+You must select a `kelly_multiplier` representing the fraction of the Kelly Criterion to bet.
+- 0.10: High variance, underdog moneyline, or low conviction play.
+- 0.25: Standard quarter-Kelly sizing.
+- 0.50: Extremely high conviction, absolute lock.
+Your output `kelly_multiplier` will be used in the final math post-processor: units = (edge / (decimal_odds - 1)) * kelly_multiplier.
 
 ## Output Rules
 You MUST return a valid JSON object matching BetRecommendation exactly:
@@ -92,33 +95,34 @@ ev_agent = Agent(
 
 
 def build_game_prompt(
-    game: Game, 
-    bet_type: BetType, 
+    game: Game,
+    bet_type: BetType,
     side: BetSide,
     home_recent: str = "No recent form data.",
     away_recent: str = "No recent form data.",
     home_roi: str = "Historical ROI: 0W-0L (+0.0u)",
     away_roi: str = "Historical ROI: 0W-0L (+0.0u)",
+    bookmaker: str = "fanduel",
 ) -> str:
     """Build the user message for the agent to analyze a specific market."""
     
     # Get relevant odds
     odds = None
     if bet_type == BetType.SPREAD and side == BetSide.HOME:
-        odds = game.home_odds
+        odds = game.home_odds.get(bookmaker)
     elif bet_type == BetType.SPREAD and side == BetSide.AWAY:
-        odds = game.away_odds
+        odds = game.away_odds.get(bookmaker)
     elif bet_type == BetType.TOTAL and side == BetSide.OVER:
-        odds = game.total_over_odds
+        odds = game.total_over_odds.get(bookmaker)
     elif bet_type == BetType.TOTAL and side == BetSide.UNDER:
-        odds = game.total_under_odds
+        odds = game.total_under_odds.get(bookmaker)
     elif bet_type == BetType.MONEYLINE and side == BetSide.HOME:
-        odds = game.home_ml
+        odds = game.home_ml.get(bookmaker)
     elif bet_type == BetType.MONEYLINE and side == BetSide.AWAY:
-        odds = game.away_ml
+        odds = game.away_ml.get(bookmaker)
 
     if odds is None:
-        raise ValueError(f"No odds found for {bet_type} / {side}")
+        raise ValueError(f"No {bookmaker} odds found for {bet_type} / {side}")
 
     # Build home stats block
     home_block = "No stats available."
@@ -140,23 +144,29 @@ def build_game_prompt(
         )
 
     # Full odds context so agent can reason about the market structure
+    ho = game.home_odds.get(bookmaker)
+    ao = game.away_odds.get(bookmaker)
     spread_ctx = ""
-    if game.home_odds and game.away_odds:
-        spread_ctx = (f"Spread: {game.home_team} {game.home_odds.line:+.1f} "
-                      f"({'%+d' % game.home_odds.american_odds}) / "
-                      f"{game.away_team} {game.away_odds.line:+.1f} "
-                      f"({'%+d' % game.away_odds.american_odds})")
+    if ho and ao:
+        spread_ctx = (f"Spread: {game.home_team} {ho.line:+.1f} "
+                      f"({'%+d' % ho.american_odds}) / "
+                      f"{game.away_team} {ao.line:+.1f} "
+                      f"({'%+d' % ao.american_odds})")
 
+    o_to = game.total_over_odds.get(bookmaker)
+    u_to = game.total_under_odds.get(bookmaker)
     total_ctx = ""
-    if game.total_over_odds and game.total_under_odds:
-        total_ctx = (f"Total: O/U {game.total_over_odds.line} "
-                     f"(O {'%+d' % game.total_over_odds.american_odds} / "
-                     f"U {'%+d' % game.total_under_odds.american_odds})")
+    if o_to and u_to:
+        total_ctx = (f"Total: O/U {o_to.line} "
+                     f"(O {'%+d' % o_to.american_odds} / "
+                     f"U {'%+d' % u_to.american_odds})")
 
+    hml = game.home_ml.get(bookmaker)
+    aml = game.away_ml.get(bookmaker)
     ml_ctx = ""
-    if game.home_ml and game.away_ml:
-        ml_ctx = (f"Moneyline: {game.home_team} {'%+d' % game.home_ml.american_odds} / "
-                  f"{game.away_team} {'%+d' % game.away_ml.american_odds}")
+    if hml and aml:
+        ml_ctx = (f"Moneyline: {game.home_team} {'%+d' % hml.american_odds} / "
+                  f"{game.away_team} {'%+d' % aml.american_odds}")
 
     return f"""
 ## Game: {game.away_team} @ {game.home_team}
@@ -167,7 +177,7 @@ Game ID: {game.game_id}
 Type: {bet_type.value.upper()}
 Side: {side.value.upper()}
 Line: {odds.line if odds.line else 'N/A'}
-American Odds (FanDuel): {odds.american_odds}
+American Odds ({bookmaker.title()}): {odds.american_odds}
 Implied Probability: {odds.implied_probability:.1%}
 
 ## All Available Lines (FanDuel context)
@@ -206,6 +216,7 @@ async def analyze_game_market(
     away_recent: str = "No recent form data.",
     home_roi: str = "Historical ROI: 0W-0L (+0.0u)",
     away_roi: str = "Historical ROI: 0W-0L (+0.0u)",
+    bookmaker: str = "fanduel"
 ) -> BetRecommendation:
     """
     Run the EV agent for one specific market of a game.
@@ -221,7 +232,8 @@ async def analyze_game_market(
     prompt = build_game_prompt(
         game, bet_type, side, 
         home_recent, away_recent, 
-        home_roi, away_roi
+        home_roi, away_roi,
+        bookmaker=bookmaker
     )
     result = await ev_agent.run(prompt)
     rec = result.output
@@ -238,7 +250,7 @@ async def analyze_game_market(
     return rec
 
 
-def _select_markets(game: Game) -> list[tuple[BetType, BetSide]]:
+def _select_markets(game: Game, bookmaker: str = "fanduel") -> list[tuple[BetType, BetSide]]:
     """
     Select ONE side per market to analyze — the side with better American odds
     (less juice = more value). This prevents the LLM from analyzing both sides
@@ -249,39 +261,46 @@ def _select_markets(game: Game) -> list[tuple[BetType, BetSide]]:
       - Total: pick whichever side (over or under) has the higher American odds
     """
     markets = []
+    
+    ho = game.home_odds.get(bookmaker)
+    ao = game.away_odds.get(bookmaker)
+    o_to = game.total_over_odds.get(bookmaker)
+    u_to = game.total_under_odds.get(bookmaker)
+    hml = game.home_ml.get(bookmaker)
+    aml = game.away_ml.get(bookmaker)
 
     # Spread: pick the less-juiced side
-    if game.home_odds and game.away_odds:
-        if game.away_odds.american_odds >= game.home_odds.american_odds:
+    if ho and ao:
+        if ao.american_odds >= ho.american_odds:
             markets.append((BetType.SPREAD, BetSide.AWAY))
         else:
             markets.append((BetType.SPREAD, BetSide.HOME))
-    elif game.home_odds:
+    elif ho:
         markets.append((BetType.SPREAD, BetSide.HOME))
-    elif game.away_odds:
+    elif ao:
         markets.append((BetType.SPREAD, BetSide.AWAY))
 
     # Total: pick the less-juiced side
-    if game.total_over_odds and game.total_under_odds:
-        if game.total_under_odds.american_odds >= game.total_over_odds.american_odds:
+    if o_to and u_to:
+        if u_to.american_odds >= o_to.american_odds:
             markets.append((BetType.TOTAL, BetSide.UNDER))
         else:
             markets.append((BetType.TOTAL, BetSide.OVER))
-    elif game.total_over_odds:
+    elif o_to:
         markets.append((BetType.TOTAL, BetSide.OVER))
-    elif game.total_under_odds:
+    elif u_to:
         markets.append((BetType.TOTAL, BetSide.UNDER))
 
     # Moneyline: pick the underdog (higher American odds = more value potential)
     # Favorites at -300 rarely have EV; underdogs at +150 might
-    if game.home_ml and game.away_ml:
-        if game.away_ml.american_odds >= game.home_ml.american_odds:
+    if hml and aml:
+        if aml.american_odds >= hml.american_odds:
             markets.append((BetType.MONEYLINE, BetSide.AWAY))
         else:
             markets.append((BetType.MONEYLINE, BetSide.HOME))
-    elif game.home_ml:
+    elif hml:
         markets.append((BetType.MONEYLINE, BetSide.HOME))
-    elif game.away_ml:
+    elif aml:
         markets.append((BetType.MONEYLINE, BetSide.AWAY))
 
     return markets
@@ -289,13 +308,14 @@ def _select_markets(game: Game) -> list[tuple[BetType, BetSide]]:
 
 async def _analyze_game_all_markets(
     game: Game,
+    bookmaker: str = "fanduel"
 ) -> list[BetRecommendation]:
     """Analyze the best side of each market for a game concurrently."""
-    markets = _select_markets(game)
+    markets = _select_markets(game, bookmaker=bookmaker)
 
     async def safe_analyze(bet_type: BetType, side: BetSide):
         try:
-            return await analyze_game_market(game, bet_type, side)
+            return await analyze_game_market(game, bet_type, side, bookmaker=bookmaker)
         except Exception as e:
             print(f"  [Warning] Skipped {game.away_team} @ {game.home_team} "
                   f"{bet_type.value}/{side.value}: {e}")
@@ -306,7 +326,12 @@ async def _analyze_game_all_markets(
 
 
 
-async def analyze_full_slate(games: list[Game], max_games: int = 5, ledger: Any = None) -> DailySlate:
+async def analyze_full_slate(
+    games: list[Game], 
+    max_games: int = 5, 
+    ledger: Any = None, 
+    bookmaker: str = "fanduel"
+) -> DailySlate:
     """
     Fully concurrent analysis: all games AND all markets run in parallel.
     Games are pre-ranked by quality before LLM calls:
@@ -323,16 +348,16 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5, ledger: Any 
         stats_score = (1 if game.home_stats else 0) + (1 if game.away_stats else 0)
 
         # (2) How good is the pricing on the markets we'll analyze?
-        markets = _select_markets(game)
+        markets = _select_markets(game, bookmaker=bookmaker)
         pricing_score = 0
         for bt, side in markets:
             odds_obj = None
             if bt == BetType.SPREAD:
-                odds_obj = game.away_odds if side == BetSide.AWAY else game.home_odds
+                odds_obj = game.away_odds.get(bookmaker) if side == BetSide.AWAY else game.home_odds.get(bookmaker)
             elif bt == BetType.TOTAL:
-                odds_obj = game.total_over_odds if side == BetSide.OVER else game.total_under_odds
+                odds_obj = game.total_over_odds.get(bookmaker) if side == BetSide.OVER else game.total_under_odds.get(bookmaker)
             elif bt == BetType.MONEYLINE:
-                odds_obj = game.away_ml if side == BetSide.AWAY else game.home_ml
+                odds_obj = game.away_ml.get(bookmaker) if side == BetSide.AWAY else game.home_ml.get(bookmaker)
                 
             if odds_obj and odds_obj.american_odds:
                 pricing_score += odds_obj.american_odds
@@ -408,7 +433,7 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5, ledger: Any 
                 if a_roi["total_bets"] > 0:
                     a_roi_str = f"Historical ROI: {a_roi['wins']}W-{a_roi['losses']}L ({a_roi['net_units']:+.1f}u)"
 
-            rec = await analyze_game_market(game, bet_type, side, h_form, a_form, h_roi_str, a_roi_str)
+            rec = await analyze_game_market(game, bet_type, side, h_form, a_form, h_roi_str, a_roi_str, bookmaker=bookmaker)
             return rec
         except Exception as e:
             print(f"  [Warning] Skipped {game.away_team} @ {game.home_team} "
@@ -418,7 +443,7 @@ async def analyze_full_slate(games: list[Game], max_games: int = 5, ledger: Any 
     tasks = [
         analyze_one(game, bt, s)
         for game in games
-        for bt, s in _select_markets(game)   # 1 spread + 1 total per game only
+        for bt, s in _select_markets(game, bookmaker=bookmaker)   # 1 spread + 1 total per game only
     ]
 
     results = await asyncio.gather(*tasks)

@@ -68,3 +68,66 @@ This will automatically open the UI in your browser at `http://localhost:8501`.
 | Phase 5: Capstone Dashboard | 14–15 | 🔜 Planned |
 
 See [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) for the full 15-week breakdown.
+
+---
+
+## 📖 Usage Tutorial
+
+### 🏀 Today's Slate — Select, Preview & Analyze Games
+
+#### Step 1 — Load Games and Select Matchups
+
+Open **Today's Slate** from the sidebar. Click **Load Today's Games** to pull live FanDuel odds. Check the checkbox beneath any game card you want to analyze — the top bar updates to show how many you have selected.
+
+![Step 1 – Select games from the slate](docs/screenshots/step1_select_games.png)
+
+> **Tip:** Use the filters in the sidebar (conference, spread size, win threshold) to narrow down the slate before selecting.
+
+---
+
+#### Step 2 — Generate AI Previews
+
+With games selected, click **🪄 AI Previews (N)** at the top. The agent generates a concise edge summary for each selected game — highlighting key matchup factors, pace mismatches, or line inefficiencies — displayed directly on the game card in purple.
+
+![Step 2 – AI-generated edge previews appear on each selected game card](docs/screenshots/step2_ai_previews.png)
+
+> **Tip:** Use previews as a quick gut-check before committing to a full EV analysis run, which uses more API credits.
+
+---
+
+#### Step 3 — Run Full EV Analysis
+
+Click **▶ Analyze N Games** to run the full Chain-of-Thought EV analysis. The agent evaluates each market (spread, total, moneyline), calculates true implied probability, applies quarter-Kelly sizing, and surfaces only bets above the +3.5% EV threshold. Results appear automatically on the **Picks & Analysis** page.
+
+![Step 3 – Bet recommendations with EV scores and Chain-of-Thought reasoning](docs/screenshots/step3_analysis_results.png)
+
+> **Tip:** Expand the **🧠 Reasoning** section on any bet card to read the agent's full Chain-of-Thought justification before approving.
+
+---
+
+### 🏟️ Teams Explorer — Research Any Division I Program
+
+#### Step 4 — Search for a Team
+
+Open **Teams** from the sidebar. Type any team name into the search box to filter the grid of all 362 Division I programs instantly. Click **View Profile** on any card to open the full team profile.
+
+![Step 4 – Searching for "UConn" in the Teams Explorer](docs/screenshots/step4_teams_search.png)
+
+---
+
+#### Step 5 — View the Season Schedule
+
+On the team profile page, click the **📅 Schedule** tab. This pulls the full current-season schedule from ESPN, showing results, opponents, and game-by-game outcomes — useful for spotting hot/cold streaks heading into a matchup.
+
+![Step 5 – UConn Huskies season schedule with results](docs/screenshots/step5_uconn_schedule.png)
+
+---
+
+#### Step 6 — Read the AI Scouting Overview
+
+Click the **🧠 Facts** tab. Hoops Edge generates a structured scouting report powered by GPT-4o-mini, covering offensive and defensive tendencies, key players, recent form, and situational strengths. The overview is cached so it loads instantly on repeat visits.
+
+![Step 6 – AI-generated scouting overview for UConn Huskies](docs/screenshots/step6_uconn_facts.png)
+
+> **Tip:** The **Facts** tab also shows adjusted efficiency metrics (AdjO / AdjD), pace rating, 3PT rate, and the team's best wins and worst losses from the current season.
+

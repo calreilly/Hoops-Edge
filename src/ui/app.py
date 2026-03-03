@@ -13,15 +13,16 @@ from datetime import datetime
 from typing import Optional
 
 from src.db.storage import BetLedger
-from src.tools.odds_client import get_live_games
+from src.models.schemas import BetType, BetSide
+from src.tools.odds_client import get_live_games, _lookup_team_stats
 from src.agents.ev_calculator import analyze_full_slate
 from src.tools.espn_client import (
     fetch_team_summary, fetch_team_roster, fetch_team_schedule,
     fetch_best_worst, fetch_boxscore, fetch_player_stats,
     fetch_team_stat_leaders, fetch_game_venue, inches_to_ft,
-    get_espn_team_id, logo_url, TEAM_ESPN_IDS, get_all_espn_teams
+    get_espn_team_id, logo_url, TEAM_ESPN_IDS, get_all_espn_teams, get_all_standings
 )
-from src.agents.batch_preview import generate_slate_previews
+from src.agents.batch_preview import generate_slate_previews, generate_team_scouting_report
 
 def generate_matchup_bullets(g, tip: str) -> str:
     """Generate HTML bullet points comparing teams for game preview cards and search results."""
@@ -227,6 +228,22 @@ html, body, [class*="css"] {{
     border-color: transparent !important;
     color: white !important;
     font-weight: 700 !important;
+}}
+
+/* ── Main Buttons (Quick Actions) ── */
+.main [data-testid="stButton"] > button[kind="secondary"] {{
+    background: linear-gradient(135deg, rgba(26,34,54,0.6) 0%, rgba(17,24,39,0.8) 100%) !important;
+    border: 1px solid {COLORS["border"]} !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
+    transition: all 0.2s ease !important;
+    padding: 1.2rem !important;
+}}
+.main [data-testid="stButton"] > button[kind="secondary"]:hover {{
+    background: rgba(56,189,248,0.1) !important;
+    border-color: {COLORS["accent"]} !important;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.5) !important;
 }}
 
 /* ── Glass Cards ── */
@@ -700,17 +717,17 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.page == "home":
     today = datetime.now().strftime("%A, %B %d %Y")
-    pending_bets = list(ledger.db["bets"].rows_where("status IN ('pending','approved')", []))
-    pending_parlays = ledger.get_pending_parlays()
+    pending_bets: list[dict] = list(ledger.db["bets"].rows_where("status IN ('pending','approved')", []))
+    pending_parlays: list[dict] = ledger.get_pending_parlays()
     total_pending = len(pending_bets) + len(pending_parlays)
-    ev_bets = [b for b in pending_bets if b["status"] == "approved"]
+    ev_bets: list[dict] = [b for b in pending_bets if b.get("status") == "approved"]
     pl_sign = "+" if total_pl >= 0 else ""
 
     # ── INDIE HERO ──────────────────────────────────────────────
     st.markdown(f"""
 <div class="indie-hero">
   <div class="indie-title">🏀 Hoops Edge</div>
-  <div class="indie-sub">AI-Powered College Basketball Edge Detection</div>
+  <div class="indie-sub">AI-Powered Basketball Insights</div>
   <div class="indie-date">{today}</div>
 </div>
 """, unsafe_allow_html=True)
@@ -742,10 +759,45 @@ if st.session_state.page == "home":
     row1 = st.columns(3)
     row2 = st.columns(3)
     row3 = st.columns([1,2,1]) # centering the parlay button
+    # ── CHECK FOR ACTION REQUIRED BUILDUP ────────────────────────
+    action_required_count: int = 0
+    if total_pending > 0:
+        with st.spinner("Checking for unsettled final games..."):
+            try:
+                # Reuse cached live games if possible
+                if st.session_state.all_games is None:
+                    st.session_state.all_games = get_live_games(ledger)
+                
+                final_game_matchups = set()
+                for g in st.session_state.all_games:
+                    if g.status == "STATUS_FINAL":
+                        final_game_matchups.add(f"{g.away_team} @ {g.home_team}")
+                
+                # Check bets
+                for b in pending_bets:
+                    m = f"{b['away_team']} @ {b['home_team']}"
+                    if m in final_game_matchups:
+                        action_required_count += 1
+                        
+                # Check parlays (simplified, if any leg is final, prompt user to check)
+                for p in pending_parlays:
+                    try:
+                        legs = json.loads(p.get("leg_ids", "[]"))
+                        if any(l in final_game_matchups for l in legs):
+                            action_required_count += 1
+                    except:
+                        pass
+            except Exception as e:
+                print(f"Silently continuing if scoreboard fails: {e}")
+
+    pending_desc = f"{total_pending} ticket(s) awaiting action"
+    if action_required_count > 0:
+        pending_desc = f'<span style="color:#ef4444;font-weight:800">🔴 ACTION REQUIRED: Settle {action_required_count} bet(s)</span>'
+        
     actions = [
         (row1[0], "home_slate",   "slate",   "📋", "Today's Slate",   "Live lines → Pick games → Find edges"),
         (row1[1], "home_picks",   "picks",   "📊", "Picks & Analysis","See all AI bet suggestions"),
-        (row1[2], "home_pending", "pending", "⏳", "Pending Bets",   f"{total_pending} ticket(s) awaiting action"),
+        (row1[2], "home_pending", "pending", "⏳", "Pending Bets",   pending_desc),
         (row2[0], "home_search",  "search",  "🔍", "Game Search",    "Odds by team or conference"),
         (row2[1], "home_teams",   "teams",   "🏀", "Teams Explorer", "Roster, schedule & scouting reports"),
         (row2[2], "home_history", "history", "📈", "Performance",    "Bankroll history & settled bets"),
@@ -769,6 +821,84 @@ if st.session_state.page == "home":
               &nbsp; <span style="color:{COLORS['muted']};font-size:.85rem">{b['recommended_units']:.2f}u</span>
             </div>""", unsafe_allow_html=True)
 
+    # ── INSIGHTFUL ADDITIONS (HOT TEAMS & TIP) ──────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="indie-section-hdr">🔥 Quant Metrics (Top NCAAB Performers)</div>', unsafe_allow_html=True)
+    
+    all_stats = ledger.get_all_team_stats()
+    if all_stats:
+        # Filter for valid data
+        valid_off = [t for t in all_stats if t.get('offensive_efficiency') and t['offensive_efficiency'] > 0]
+        valid_def = [t for t in all_stats if t.get('defensive_efficiency') and t['defensive_efficiency'] > 0]
+        valid_pace = [t for t in all_stats if t.get('pace') and t['pace'] > 0]
+        valid_3pt = [t for t in all_stats if t.get('three_point_rate') and t['three_point_rate'] > 0]
+        
+        top_offense = sorted(valid_off, key=lambda x: x['offensive_efficiency'], reverse=True)[:3]
+        top_defense = sorted(valid_def, key=lambda x: x['defensive_efficiency'])[:3]
+        top_pace = sorted(valid_pace, key=lambda x: x['pace'], reverse=True)[:3]
+        top_shooting = sorted(valid_3pt, key=lambda x: x['three_point_rate'], reverse=True)[:3]
+        
+        # Row 1: Offense & Defense
+        c_off, c_def = st.columns(2)
+        with c_off:
+            st.markdown('<div style="font-size:0.9rem;color:#94a3b8;margin-bottom:0.5rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Top Offenses (AdjO)</div>', unsafe_allow_html=True)
+            for i, t in enumerate(top_offense, 1):
+                st.markdown(f"""<div class="glass-card" style="padding:0.75rem 1rem; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span><b style="color:{COLORS['accent']};margin-right:0.4rem;">{i}.</b> {t['team_name']}</span>
+                    <span style="color:#f8fafc; font-weight:700;">{t['offensive_efficiency']:.1f}</span>
+                </div>""", unsafe_allow_html=True)
+                
+        with c_def:
+            st.markdown('<div style="font-size:0.9rem;color:#94a3b8;margin-bottom:0.5rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Top Defenses (AdjD)</div>', unsafe_allow_html=True)
+            for i, t in enumerate(top_defense, 1):
+                st.markdown(f"""<div class="glass-card" style="padding:0.75rem 1rem; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span><b style="color:{COLORS['green']};margin-right:0.4rem;">{i}.</b> {t['team_name']}</span>
+                    <span style="color:#f8fafc; font-weight:700;">{t['defensive_efficiency']:.1f}</span>
+                </div>""", unsafe_allow_html=True)
+
+        # Row 2: Pace & 3PT Shooting
+        c_pace, c_3pt = st.columns(2)
+        with c_pace:
+            st.markdown('<div style="font-size:0.9rem;color:#94a3b8;margin-bottom:0.5rem;margin-top:1rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Top Scorers (Pace)</div>', unsafe_allow_html=True)
+            for i, t in enumerate(top_pace, 1):
+                st.markdown(f"""<div class="glass-card" style="padding:0.75rem 1rem; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span><b style="color:#f59e0b;margin-right:0.4rem;">{i}.</b> {t['team_name']}</span>
+                    <span style="color:#f8fafc; font-weight:700;">{t['pace']:.1f}</span>
+                </div>""", unsafe_allow_html=True)
+                
+        with c_3pt:
+            st.markdown('<div style="font-size:0.9rem;color:#94a3b8;margin-bottom:0.5rem;margin-top:1rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Top Assists (3PT Rate)</div>', unsafe_allow_html=True)
+            for i, t in enumerate(top_shooting, 1):
+                st.markdown(f"""<div class="glass-card" style="padding:0.75rem 1rem; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span><b style="color:#8b5cf6;margin-right:0.4rem;">{i}.</b> {t['team_name']}</span>
+                    <span style="color:#f8fafc; font-weight:700;">{t['three_point_rate']:.0%}</span>
+                </div>""", unsafe_allow_html=True)
+
+    # Fun AI Tip Widget
+    import random
+    tips = [
+        "The journey of a thousand miles begins with a single step.",
+        "Fortune favors the bold — but wisdom favors the patient.",
+        "A smooth sea never made a skilled sailor.",
+        "The best time to plant a tree was 20 years ago. The second best time is now.",
+        "In the middle of difficulty lies opportunity.",
+        "What you do today can improve all your tomorrows.",
+        "Success is not final, failure is not fatal — it is the courage to continue that counts.",
+        "The only way to do great work is to love what you do.",
+        "Be yourself; everyone else is already taken.",
+        "Stars can't shine without darkness.",
+        "Every expert was once a beginner.",
+        "The harder you work, the luckier you get.",
+    ]
+    todays_tip = random.choice(tips)
+    
+    st.markdown(f"""
+    <div style="margin-top:1.5rem; background: linear-gradient(to right, rgba(139, 92, 246, 0.1), transparent); border-left: 4px solid #8b5cf6; padding: 1rem 1.5rem; border-radius: 0 8px 8px 0;">
+        <div style="font-size:0.8rem; color:#a78bfa; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.3rem;">🪄 Daily Wisdom</div>
+        <div style="color:#e2e8f0; font-size:1.05rem; font-style:italic;">"{todays_tip}"</div>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: SLATE
@@ -776,19 +906,40 @@ if st.session_state.page == "home":
 elif st.session_state.page == "slate":
     back_btn()
     st.markdown('<div class="page-title">📋 Today\'s Slate</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Load live FanDuel lines, check the games you want, then run EV analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Select leagues, load live FanDuel lines, check the games you want, then run EV analysis</div>', unsafe_allow_html=True)
+
+    # ── LEAGUE SELECTION ──────────────────────────────────────────────
+    c_l1, c_l2, c_l3 = st.columns(3)
+    with c_l1:
+        st.session_state.setdefault("sel_ncaab", True)
+        st.checkbox("NCAAB (Men's College)", key="sel_ncaab")
+    with c_l2:
+        st.session_state.setdefault("sel_ncaaw", False)
+        st.checkbox("NCAAW (Women's College)", key="sel_ncaaw")
+    with c_l3:
+        st.session_state.setdefault("sel_nba", False)
+        st.checkbox("NBA (Professional)", key="sel_nba")
 
     if st.button("📥 Load Today's Games", type="primary"):
-        with st.spinner("Fetching live FanDuel odds + AP rankings..."):
-            try:
-                games = get_live_games(ledger)
-                st.session_state.all_games = games
-                st.session_state.slate = None
-                st.session_state.selected_ids = []
-                st.toast(f"✅ Loaded {len(games)} games!", icon="🏀")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
+        # Compile requested sports
+        sport_keys = []
+        if st.session_state.sel_ncaab: sport_keys.append("basketball_ncaab")
+        if st.session_state.sel_ncaaw: sport_keys.append("basketball_ncaaw")
+        if st.session_state.sel_nba: sport_keys.append("basketball_nba")
+        
+        if not sport_keys:
+            st.warning("Please select at least one league to load games.")
+        else:
+            with st.spinner(f"Fetching live FanDuel odds for {len(sport_keys)} league(s)..."):
+                try:
+                    games = get_live_games(ledger, sport_keys=sport_keys)
+                    st.session_state.all_games = games
+                    st.session_state.slate = None
+                    st.session_state.selected_ids = []
+                    st.toast(f"✅ Loaded {len(games)} games!", icon="🏀")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
     if st.session_state.all_games:
         all_games = st.session_state.all_games
@@ -838,26 +989,34 @@ elif st.session_state.page == "slate":
             "WAC", "WCC"
         ]
         with st.expander("⚙️ Filter Games", expanded=True):
-            f_cols = st.columns(3)
+            f_cols = st.columns(4)
             with f_cols[0]:
                 filter_conf = st.multiselect("Conferences (Select multiple)", options=["Power 5", "Mid-Major"] + ALL_D1_CONFS, default=[])
             with f_cols[1]:
                 filter_ranked = st.checkbox("Ranked Teams Only", value=False)
             with f_cols[2]:
                 filter_wins = st.slider("Min Wins (Either Team)", min_value=0, max_value=30, value=0)
+            with f_cols[3]:
+                st.session_state.selected_book = st.selectbox("Sportsbook", options=["fanduel", "draftkings", "betmgm", "caesars"], index=0)
+                
+            filter_spread = st.slider("Max Spread (Absolute Value)", min_value=0.0, max_value=40.0, value=40.0, step=0.5, help="Filter out heavily lopsided matchups.")
 
         # Apply filters
         POWER_5 = {"SEC", "ACC", "Big 12", "Big Ten", "Big East"}
         filtered_games = []
-        for g in all_games:
+        for g in sorted_games:
             # Rank filter
             is_ranked = (g.home_stats and g.home_stats.ranking) or (g.away_stats and g.away_stats.ranking)
             if filter_ranked and not is_ranked:
                 continue
                 
             # Conference filter
-            home_conf = g.home_stats.conference if g.home_stats else ""
-            away_conf = g.away_stats.conference if g.away_stats else ""
+            standings = get_all_standings(g.sport_key)
+            home_conf_api = standings.get(g.home_team, {}).get("conference", "")
+            away_conf_api = standings.get(g.away_team, {}).get("conference", "")
+            
+            home_conf = home_conf_api or (g.home_stats.conference if g.home_stats and g.home_stats.conference else "")
+            away_conf = away_conf_api or (g.away_stats.conference if g.away_stats and g.away_stats.conference else "")
             
             if filter_conf:
                 valid_conf = False
@@ -893,6 +1052,13 @@ elif st.session_state.page == "slate":
             if max(hw, aw) < filter_wins:
                 continue
                 
+            # Spread filter
+            book = st.session_state.get("selected_book", "fanduel")
+            if g.home_odds and book in g.home_odds:
+                s = g.home_odds[book].line
+                if s is not None and abs(s) > filter_spread:
+                    continue
+                
             filtered_games.append(g)
 
         # ── TOP CONTROL BAR ───────────────────────────────────────────────────
@@ -913,11 +1079,13 @@ elif st.session_state.page == "slate":
                         st.session_state.game_checks.clear()
                         st.rerun()
         with c3:
-            if len(filtered_games) > 0:
-                if st.button(f"🪄 AI Previews for Slate", use_container_width=True):
-                    with st.spinner(f"Generating mini-previews for {len(filtered_games)} games..."):
+            if n_sel > 0:
+                if st.button(f"🪄 AI Previews ({n_sel})", use_container_width=True):
+                    chosen = [g for g in all_games if g.game_id in selected_ids]
+                    with st.spinner(f"Generating mini-previews for {len(chosen)} game(s)..."):
                         try:
-                            previews = run_async(generate_slate_previews(filtered_games))
+                            book = st.session_state.get("selected_book", "fanduel")
+                            previews = run_async(generate_slate_previews(chosen, bookmaker=book))
                             # Merge into existing so we don't lose old ones if filtering changes
                             st.session_state.ai_previews.update(previews)
                             st.rerun()
@@ -929,7 +1097,8 @@ elif st.session_state.page == "slate":
                     chosen = [g for g in all_games if g.game_id in selected_ids]
                     with st.spinner(f"🤖 Running EV analysis on {len(chosen)} game(s)..."):
                         try:
-                            slate = run_async(analyze_full_slate(chosen, max_games=len(chosen), ledger=ledger))
+                            book = st.session_state.get("selected_book", "fanduel")
+                            slate = run_async(analyze_full_slate(chosen, max_games=len(chosen), ledger=ledger, bookmaker=book))
                             st.session_state.slate = slate
                             st.session_state.slate_error = None
                             st.session_state.page = "picks"
@@ -953,10 +1122,10 @@ elif st.session_state.page == "slate":
                 home_rec   = g.home_stats.record if g.home_stats else ""
                 tip        = g.game_time.strftime("%b %d, %I:%M %p ET") if g.game_time else "TBD"
                 
-                away_espn_id = get_espn_team_id(away_name) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in away_name for w in n.split()[:2])), None)
-                home_espn_id = get_espn_team_id(home_name) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in home_name for w in n.split()[:2])), None)
-                away_logo = logo_url(away_espn_id) if away_espn_id else ""
-                home_logo = logo_url(home_espn_id) if home_espn_id else ""
+                away_espn_id = get_espn_team_id(away_name, g.sport_key)
+                home_espn_id = get_espn_team_id(home_name, g.sport_key)
+                away_logo = logo_url(away_espn_id, g.sport_key) if away_espn_id else ""
+                home_logo = logo_url(home_espn_id, g.sport_key) if home_espn_id else ""
 
                 rank_badge_a = f'<div class="gc-rank">#{away_rank} AP</div>' if away_rank else ""
                 rank_badge_h = f'<div class="gc-rank">#{home_rank} AP</div>' if home_rank else ""
@@ -967,6 +1136,27 @@ elif st.session_state.page == "slate":
                 ai_prev = st.session_state.ai_previews.get(g.game_id, "")
                 if ai_prev:
                     blurb_html += f'<div style="margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid #1e2d45; color:#a78bfa;"><b>🪄 AI Edge:</b> {ai_prev}</div>'
+
+                # True Implied Probability Visualization
+                book = st.session_state.get("selected_book", "fanduel")
+                true_home_p = g.get_true_implied_probability(BetType.MONEYLINE, BetSide.HOME, book)
+                prob_bar_html = ""
+                if true_home_p is not None:
+                    true_away_p = 1.0 - true_home_p
+                    h_pct = true_home_p * 100
+                    a_pct = true_away_p * 100
+                    
+                    prob_bar_html = f"""<div style="margin-top:0.8rem; background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 8px;">
+<div style="display:flex;justify-content:space-between;font-size:0.68rem;color:#94a3b8;margin-bottom:0.3rem;font-weight:700;">
+<span>{a_pct:.1f}%</span>
+<span style="font-size:0.55rem;letter-spacing:0.05em;color:#64748b;">TRUE PROBABILITY (NO-VIG)</span>
+<span>{h_pct:.1f}%</span>
+</div>
+<div style="width:100%;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;display:flex;">
+<div style="width:{a_pct}%;height:100%;background:{COLORS['accent']};transition:width 1s ease-in-out;"></div>
+<div style="width:{h_pct}%;height:100%;background:{COLORS['green']};transition:width 1s ease-in-out;"></div>
+</div>
+</div>"""
 
                 html_card = f"""
 <div class="game-card" style="margin-bottom:0.8rem; padding:1rem;">
@@ -987,6 +1177,7 @@ elif st.session_state.page == "slate":
 <div class="gc-mid" style="flex:2;">
 <div style="font-size:.75rem;color:#fbbf24;font-weight:800;margin-bottom:0.2rem">{tip}</div>
 <div style="font-size:0.75rem;color:#cbd5e1;line-height:1.4;">{blurb_html}</div>
+{prob_bar_html}
 </div>
 </div>
 </div>
@@ -1003,11 +1194,49 @@ elif st.session_state.page == "slate":
 
         st.markdown("")
     else:
-        st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2.5rem">
-          <div style="font-size:3rem">🏀</div>
-          <div style="font-size:1.1rem;font-weight:600;margin:.5rem 0 .3rem">No games loaded yet</div>
-          <div style="color:{COLORS['muted']}">Click <b>Load Today's Games</b> above to fetch live FanDuel lines</div>
-        </div>""", unsafe_allow_html=True)
+        # Fetch bankroll and performance stats for Hero dashboard
+        br = ledger.get_bankroll()
+        settled = list(ledger.db["bets"].rows_where("status = ?", ["settled"]))
+        settled_parlays = list(ledger.db["parlays"].rows_where("status = ?", ["settled"]))
+        wins   = sum(1 for b in settled if b["result"] == "win") + sum(1 for p in settled_parlays if p["result"] == "win")
+        losses = sum(1 for b in settled if b["result"] == "loss") + sum(1 for p in settled_parlays if p["result"] == "loss")
+        total_bets = wins + losses
+        win_rate = (wins / total_bets) * 100 if total_bets > 0 else 0
+        
+        profit = sum(b["profit_loss"] for b in settled if b["profit_loss"] is not None) + \
+                 sum(p["profit_loss"] for p in settled_parlays if p["profit_loss"] is not None)
+        profit_color = COLORS["green"] if profit >= 0 else COLORS["red"]
+        profit_sign = "+" if profit >= 0 else ""
+
+        st.html(f"""
+        <div class="hero" style="padding:3rem 2rem; margin-top:1rem; border-radius:16px; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border: 1px solid {COLORS['border']}; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <h1 style="font-size:2.5rem; margin-bottom:0.5rem; font-weight:800; background: -webkit-linear-gradient(45deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Welcome to Hoops Edge</h1>
+            <p style="color:{COLORS['muted']}; font-size:1.1rem; margin-bottom:2.5rem; max-width:650px; margin-left:auto; margin-right:auto; line-height: 1.6;">
+                Your AI-powered quantitative sports betting terminal. We combine live dynamic odds from leading bookmakers with sophisticated modeling to hunt for positive Expected Value (+EV) opportunities.
+            </p>
+            
+            <div style="display:flex; justify-content:center; gap:1.5rem; flex-wrap:wrap; margin-bottom:2.5rem;">
+                <div style="background: rgba(0,0,0,0.3); padding:1.5rem 2rem; border-radius:12px; border: 1px solid rgba(255,255,255,0.05); min-width: 160px; backdrop-filter: blur(4px);">
+                    <div style="font-size:0.75rem; color:{COLORS['muted']}; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.5rem; font-weight: 600;">Bankroll</div>
+                    <div style="font-size:2.2rem; font-weight:700; color: #f8fafc;">{br['balance_units']:.2f}u</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.3); padding:1.5rem 2rem; border-radius:12px; border: 1px solid rgba(255,255,255,0.05); min-width: 160px; backdrop-filter: blur(4px);">
+                    <div style="font-size:0.75rem; color:{COLORS['muted']}; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.5rem; font-weight: 600;">Net Profit</div>
+                    <div style="font-size:2.2rem; font-weight:700; color:{profit_color};">{profit_sign}{profit:.2f}u</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.3); padding:1.5rem 2rem; border-radius:12px; border: 1px solid rgba(255,255,255,0.05); min-width: 160px; backdrop-filter: blur(4px);">
+                    <div style="font-size:0.75rem; color:{COLORS['muted']}; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.5rem; font-weight: 600;">Win Rate</div>
+                    <div style="font-size:2.2rem; font-weight:700; color:{COLORS['accent']};">{win_rate:.1f}%</div>
+                </div>
+            </div>
+
+            <div style="background: rgba(56, 189, 248, 0.05); border: 1px dashed rgba(56, 189, 248, 0.3); padding: 1.5rem; border-radius: 12px; display:inline-block; max-width: 500px;">
+                <div style="font-size:1.8rem; margin-bottom:0.5rem;">⚡</div>
+                <div style="font-weight:600; color:#e2e8f0; margin-bottom:0.3rem;">Ready to find edges?</div>
+                <div style="color:{COLORS['muted']}; font-size:0.95rem;">Select your leagues above and click <b>Load Today's Games</b> to pull the latest sportsbook odds.</div>
+            </div>
+        </div>
+        """)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1208,7 +1437,8 @@ elif st.session_state.page == "pending":
                 with st.expander(
                     f"{icon} {bet['away_team']} @ {bet['home_team']}  ·  "
                     f"{bet['bet_type'].upper()} {bet['side'].upper()}  "
-                    f"({'%+d' % bet['american_odds']})  ·  EV {bet['expected_value']:+.1%}  ·  {bet['recommended_units']:.2f}u"
+                    f"({'%+d' % bet['american_odds']})  ·  EV {bet['expected_value']:+.1%}  ·  "
+                    f"Conviction: {bet.get('kelly_multiplier', 0.25):.2f}x  ·  {bet['recommended_units']:.2f}u"
                 ):
                     st.markdown(f"**ID:** `{bet['id'][:8]}` &nbsp;&nbsp; **Status:** `{bet['status'].upper()}`")
                     st.markdown(f"**Summary:** {bet['summary']}")
@@ -1230,10 +1460,11 @@ elif st.session_state.page == "pending":
                     st.markdown("**Settle this bet:**")
                     sc1, sc2, sc3 = st.columns([2, 2, 1])
                     result = sc1.selectbox("Result", ["win","loss","push"], key=f"res_{bet['id'][:8]}")
-                    pl     = sc2.number_input("P/L (units)", value=float(bet["recommended_units"]),
+                    pl = sc2.number_input("P/L (units)", value=float(bet["recommended_units"]),
                                                step=0.01, key=f"pl_{bet['id'][:8]}")
                 if sc3.button("Settle", key=f"st_{bet['id'][:8]}"):
-                    ledger.settle_bet(bet["id"], result, pl if result != "loss" else -abs(pl))
+                    pl_val = float(pl)
+                    ledger.settle_bet(bet["id"], result, pl_val if result != "loss" else -abs(pl_val))
                     st.success(f"Settled as {result.upper()}!")
                     st.rerun()
 
@@ -1263,10 +1494,11 @@ elif st.session_state.page == "pending":
                     st.markdown("**Settle this parlay:**")
                     psc1, psc2, psc3 = st.columns([2, 2, 1])
                     result = psc1.selectbox("Result", ["win","loss","push"], key=f"pres_{p['id'][:8]}")
-                    pl     = psc2.number_input("P/L (units)", value=float(p["recommended_units"]),
+                    pl = psc2.number_input("P/L (units)", value=float(p["recommended_units"]),
                                                step=0.01, key=f"ppl_{p['id'][:8]}")
                     if psc3.button("Settle", key=f"pst_{p['id'][:8]}"):
-                        ledger.settle_parlay(p["id"], result, pl if result != "loss" else -abs(pl))
+                        pl_val = float(pl)
+                        ledger.settle_parlay(p["id"], result, pl_val if result != "loss" else -abs(pl_val))
                         st.success(f"Settled as {result.upper()}!")
                         st.rerun()
 
@@ -1454,8 +1686,28 @@ f"</div>"
             
         st.markdown("<br>", unsafe_allow_html=True)
 
-    st.markdown('<div class="page-title" style="font-size:1.1rem">📜 Settled Bets</div>', unsafe_allow_html=True)
-
+    c_sb1, c_sb2 = st.columns([3, 1])
+    with c_sb1:
+        st.markdown('<div class="page-title" style="font-size:1.1rem">📜 Settled Bets</div>', unsafe_allow_html=True)
+        
+    with c_sb2:
+        import csv, io
+        if settled_all:
+            output = io.StringIO()
+            if len(settled_all) > 0:
+                keys = list(dict(settled_all[0]).keys())
+                writer = csv.DictWriter(output, fieldnames=keys)
+                writer.writeheader()
+                for r in settled_all:
+                    writer.writerow(dict(r))
+            csv_data = output.getvalue().encode('utf-8')
+            st.download_button(
+                label="📥 Export Ledger to CSV",
+                data=csv_data,
+                file_name=f"hoops_edge_ledger_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
     if not settled_all:
         st.markdown(f"""<div class="glass-card" style="text-align:center;padding:2rem">
           <div style="color:{COLORS['muted']}">No settled bets yet. Approve some picks and settle them after games.</div>
@@ -1492,6 +1744,45 @@ f"</div>"
         
         st.dataframe(rows, use_container_width=True, hide_index=True)
 
+        st.markdown('<div class="page-title" style="font-size:1.1rem;margin-top:2rem">🧠 AI Post-Mortem Analysis</div>', unsafe_allow_html=True)
+        st.markdown("Select a settled bet to have the AI grade its original reasoning against the final game outcome.")
+        
+        c1, c2 = st.columns([3, 1])
+        pm_options = {f"{b['away_team']} @ {b['home_team']} ({b['bet_type'].upper()} {b['side'].upper()} | {b['result'].upper()})": b for b in settled}
+        if pm_options:
+            selected_pm = c1.selectbox("Settled Bet", options=list(pm_options.keys()), label_visibility="collapsed")
+            if c2.button("Grade Bet", use_container_width=True):
+                b = pm_options[selected_pm]
+                with st.spinner("Fetching final box score and analyzing..."):
+                    try:
+                        from src.tools.espn_client import fetch_team_schedule, get_espn_team_id, TEAM_ESPN_IDS
+                        from src.agents.post_mortem import generate_post_mortem
+                        
+                        hid = get_espn_team_id(b.get("home_team", "")) or next((eid for n, eid in TEAM_ESPN_IDS.items() if any(w in b.get("home_team", "") for w in n.split()[:2])), None)
+                        
+                        final_ctx = "Score not found."
+                        if hid:
+                            comp = [e for e in fetch_team_schedule(hid) if e.get("completed")]
+                            recent = comp[-3:] if len(comp) > 3 else comp
+                            strs = []
+                            for e in recent:
+                                is_home = e.get("team_is_home", True)
+                                ts = e.get("home_score") if is_home else e.get("away_score")
+                                os = e.get("away_score") if is_home else e.get("home_score")
+                                on = e.get("away") if is_home else e.get("home")
+                                strs.append(f"{ts}-{os} vs {on} on {e.get('date','')}")
+                            if strs:
+                                final_ctx = " | ".join(strs)
+                                
+                        matchup = f"{b.get('away_team','')} @ {b.get('home_team','')}"
+                        market = f"{b.get('bet_type','').upper()} {b.get('side','').upper()} ({b.get('american_odds',0):+d})"
+                        rationale = b.get("summary", "No rationale recorded.")
+                        res = b.get("result", "")
+                        
+                        pm_text = run_async(generate_post_mortem(matchup, market, rationale, res, final_ctx))
+                        st.info(pm_text)
+                    except Exception as e:
+                        st.error(f"Error generating post-mortem: {e}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: PARLAYS
@@ -1622,7 +1913,9 @@ elif st.session_state.page == "search":
                     h_rank = f"#{g.home_stats.ranking} " if g.home_stats and g.home_stats.ranking else ""
                     a_rank = f"#{g.away_stats.ranking} " if g.away_stats and g.away_stats.ranking else ""
                     tip = g.game_time.strftime("%b %d, %I:%M %p ET")
-                    spread = f"{g.home_team.split()[0]} {g.home_odds.line:+.1f}" if g.home_odds and g.home_odds.line else ""
+                    book = st.session_state.get("selected_book", "fanduel")
+                    ho = g.home_odds.get(book)
+                    spread = f"{g.home_team.split()[0]} {ho.line:+.1f}" if ho and ho.line else ""
                     
                     st.markdown(f"""
                     <div style="background:#111827;border:1px solid #1e2d45;border-radius:12px;padding:1rem;margin-bottom:.5rem;">
@@ -1640,7 +1933,8 @@ elif st.session_state.page == "search":
                     if st.button(f"Analyze", key=f"hot_{g.game_id}", use_container_width=True):
                         with st.spinner("🤖 Running EV analysis..."):
                             try:
-                                slate = run_async(analyze_full_slate([g], max_games=1, ledger=ledger))
+                                book = st.session_state.get("selected_book", "fanduel")
+                                slate = run_async(analyze_full_slate([g], max_games=1, ledger=ledger, bookmaker=book))
                                 st.session_state.slate = slate
                                 st.session_state.slate_error = None
                                 st.session_state.page = "picks"
@@ -1682,18 +1976,26 @@ elif st.session_state.page == "search":
                     lines = []
                     for g in matches:
                         tip   = g.game_time.strftime("%b %d, %I:%M %p ET")
-                        sp    = (f"Spread: {g.home_team} {g.home_odds.line:+.1f} "
-                                 f"({'%+d' % g.home_odds.american_odds}) / "
-                                 f"{g.away_team} {g.away_odds.line:+.1f} "
-                                 f"({'%+d' % g.away_odds.american_odds})"
-                                 if g.home_odds and g.away_odds else "No spread")
-                        tot   = (f"O/U {g.total_over_odds.line} "
-                                 f"(O {'%+d' % g.total_over_odds.american_odds} / "
-                                 f"U {'%+d' % g.total_under_odds.american_odds})"
-                                 if g.total_over_odds and g.total_under_odds else "No total")
-                        ml    = (f"ML: {g.home_team} {'%+d' % g.home_ml.american_odds} / "
-                                 f"{g.away_team} {'%+d' % g.away_ml.american_odds}"
-                                 if g.home_ml and g.away_ml else "")
+                        book = st.session_state.get("selected_book", "fanduel")
+                        ho = g.home_odds.get(book)
+                        ao = g.away_odds.get(book)
+                        oto = g.total_over_odds.get(book)
+                        uto = g.total_under_odds.get(book)
+                        hml = g.home_ml.get(book)
+                        aml = g.away_ml.get(book)
+                        
+                        sp    = (f"Spread: {g.home_team} {ho.line:+.1f} "
+                                 f"({'%+d' % ho.american_odds}) / "
+                                 f"{g.away_team} {ao.line:+.1f} "
+                                 f"({'%+d' % ao.american_odds})"
+                                 if ho and ao else "No spread")
+                        tot   = (f"O/U {oto.line} "
+                                 f"(O {'%+d' % oto.american_odds} / "
+                                 f"U {'%+d' % uto.american_odds})"
+                                 if oto and uto else "No total")
+                        ml    = (f"ML: {g.home_team} {'%+d' % hml.american_odds} / "
+                                 f"{g.away_team} {'%+d' % aml.american_odds}"
+                                 if hml and aml else "")
                         conf  = f" · {g.home_stats.conference}" if (g.home_stats and g.home_stats.conference) else ""
                         blurb = generate_matchup_bullets(g, tip)
                         card = f"""<div class="glass-card accent" style="margin:.5rem 0;margin-bottom:0">
@@ -1711,7 +2013,8 @@ elif st.session_state.page == "search":
                             with st.spinner("🤖 Running EV analysis on this game..."):
                                 try:
                                     # run_async is defined globally in app.py
-                                    slate = run_async(analyze_full_slate([g], max_games=1, ledger=ledger))
+                                    book = st.session_state.get("selected_book", "fanduel")
+                                    slate = run_async(analyze_full_slate([g], max_games=1, ledger=ledger, bookmaker=book))
                                     st.session_state.slate = slate
                                     st.session_state.slate_error = None
                                     st.session_state.page = "picks"
@@ -1737,28 +2040,41 @@ elif st.session_state.page == "teams":
     def _render_player(container, player_data: dict):
         """Render player bio + scouting notes into a given container (uses roster dict directly)."""
         with container:
-            info = fetch_player_stats(player_data)
-            if not info or not info.get("name"):
+            if not player_data or not player_data.get("name"):
                 st.caption("Player data unavailable.")
                 return
-            c1, c2 = st.columns([1, 3])
+                
+            c1, c2 = st.columns([1, 4])
             with c1:
-                if info.get("headshot"):
-                    st.image(info["headshot"], width=100)
+                headshot = player_data.get("headshot", "")
+                if headshot:
+                    st.image(headshot, width=80)
+                else:
+                    st.markdown('<div style="width:80px;height:80px;border-radius:50%;background:#2d4a6e;line-height:80px;text-align:center;font-size:2rem">👤</div>', unsafe_allow_html=True)
             with c2:
-                st.markdown(f"**{info['name']}**")
-                pos  = info.get("position", "")
-                ht   = info.get("height", "")
-                wt   = info.get("weight", "")
-                city = info.get("birthPlace", "")
-                yr   = info.get("year", "")
-                st.caption(f"{pos}  ·  {ht}, {wt} lbs  ·  {yr}  ·  {city}")
-                roster_stats = info.get("stats", {})
+                st.markdown(f"**{player_data['name']}**")
+                pos  = player_data.get("position", "")
+                ht   = player_data.get("height", "")
+                wt   = player_data.get("weight", "")
+                city = player_data.get("birthPlace", "")
+                yr   = player_data.get("year", "")
+                
+                bio_parts = [p for p in [pos, f"{ht} {wt}" if ht else "", yr, city] if p and p.strip()]
+                st.caption("  ·  ".join(bio_parts))
+                
+                roster_stats = player_data.get("stats", {})
                 if roster_stats:
-                    stat_cols = list(roster_stats.items())[:8]
-                    cols = st.columns(len(stat_cols))
-                    for col, (k, v) in zip(cols, stat_cols):
+                    # Filter for relevance so we don't overwhelm the card
+                    key_metrics = ["PPG", "RPG", "APG", "FG%", "3P%"]
+                    display_stats = {k: v for k, v in roster_stats.items() if k in key_metrics}
+                    # Fallback if specific metrics aren't found
+                    if not display_stats:
+                         display_stats = dict(list(roster_stats.items())[:5])
+                         
+                    cols = st.columns(len(display_stats))
+                    for col, (k, v) in zip(cols, display_stats.items()):
                         col.metric(k, v)
+                        
             traits = {
                 "PG": "🎯 Floor general — playmaking, A/TO ratio, pick-and-roll reads.",
                 "SG": "🎯 Shooting guard — off-ball movement, catch-and-shoot, two-way.",
@@ -1766,7 +2082,7 @@ elif st.session_state.page == "teams":
                 "PF": "🎯 Power forward — paint presence, screen quality, face-up game.",
                 "C":  "🎯 Center — rim protection, offensive rebounding, P&R defense.",
             }
-            pos_key = pos.upper()[:2]
+            pos_key = pos.upper()[:2] if pos else ""
             note = traits.get(pos_key, "🎯 Versatile player — evaluate holistically.")
             st.info(note)
 
@@ -1797,17 +2113,17 @@ elif st.session_state.page == "teams":
                 st.dataframe(rows, use_container_width=True, hide_index=True)
 
     @st.dialog("🏀 Team Details", width="large")
-    def show_team(team_name: str, espn_id: int, db_ranking: Optional[int]):
+    def show_team(team_name: str, espn_id: int, db_ranking: Optional[int], sport_key: str):
         with st.spinner(f"Loading {team_name}..."):
-            summary  = fetch_team_summary(espn_id)
-            roster   = fetch_team_roster(espn_id)
-            schedule = fetch_team_schedule(espn_id)
+            summary  = fetch_team_summary(espn_id, sport_key)
+            roster   = fetch_team_roster(espn_id, sport_key)
+            schedule = fetch_team_schedule(espn_id, sport_key)
         best_wins, worst_losses = fetch_best_worst(schedule, espn_id)
 
         # ─ Header ────────────────────────────────────────────────────
         h1, h2 = st.columns([1, 4])
         with h1:
-            st.image(logo_url(espn_id), width=90)
+            st.image(logo_url(espn_id, sport_key), width=90)
         with h2:
             # Prefer live ESPN rank over DB ranking
             espn_rank = summary.get("rank")  # directly from ESPN API
@@ -1947,12 +2263,7 @@ elif st.session_state.page == "teams":
 
         # ─ Facts tab ──────────────────────────────────────────────────
         with t_facts:
-            db_stats = None
-            for s in ledger.get_all_team_stats():
-                if (s.get("team_name", "").lower() in team_name.lower()
-                        or team_name.lower() in s.get("team_name", "").lower()):
-                    db_stats = s
-                    break
+            db_stats = _lookup_team_stats(summary.get('name', team_name), ledger)
 
             loc  = summary.get("location", "")
             nick = summary.get("nickname", "")
@@ -1963,11 +2274,11 @@ elif st.session_state.page == "teams":
             if not db_stats:
                 st.info("Detailed scouting data not in our database for this team.")
             else:
-                oe   = float(db_stats.get("offensive_efficiency", 0) or 0)
-                de   = float(db_stats.get("defensive_efficiency",  0) or 0)
-                pace = float(db_stats.get("pace",                  0) or 0)
-                tpr  = float(db_stats.get("three_point_rate",      0) or 0)
-                ats  = db_stats.get("ats_record", "")
+                oe   = float(getattr(db_stats, "offensive_efficiency", 0) or 0)
+                de   = float(getattr(db_stats, "defensive_efficiency", 0) or 0)
+                pace = float(getattr(db_stats, "pace", 0) or 0)
+                tpr  = float(getattr(db_stats, "three_point_rate", 0) or 0)
+                ats  = getattr(db_stats, "ats_record", "") or ""
                 net  = oe - de
 
                 st.markdown("---")
@@ -1982,8 +2293,30 @@ elif st.session_state.page == "teams":
 
                 # ── Scouting report ──────────────────────────────────────
                 st.markdown("---")
-                st.markdown("**🔍 Scouting Report**")
+                st.markdown("**🤖 AI Scouting Overview**")
+                
+                # Check for cached overview, otherwise generate it
+                ai_blurb = getattr(db_stats, "ai_overview", None)
+                if not ai_blurb:
+                    with st.spinner("Analyzing statistical profile..."):
+                        stats_dict = {
+                            "oe": oe, "de": de, "pace": pace, "3pr": tpr, "net": net, "record": rec
+                        }
+                        ai_blurb = run_async(generate_team_scouting_report(summary.get('name', team_name), stats_dict))
+                        
+                        # Cache it in the database for next time
+                        if db_stats and hasattr(db_stats, "team_id"):
+                            try:
+                                ledger.db["team_stats"].update(
+                                    db_stats.team_id,
+                                    {"ai_overview": ai_blurb}
+                                )
+                            except Exception as e:
+                                print(f"Warning: Could not cache AI overview: {e}")
+                
+                st.info(ai_blurb)
 
+                st.markdown("**🔍 Quantitative Report**")
                 strengths: list[str] = []
                 weaknesses: list[str] = []
 
@@ -2071,8 +2404,17 @@ elif st.session_state.page == "teams":
     st.markdown('<div class="page-title">🏀 Teams Explorer</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Click any team to view roster, schedule, and facts powered by ESPN</div>', unsafe_allow_html=True)
 
-    # Pull dynamic list of 362 Div 1 teams
-    all_teams_map = get_all_espn_teams()
+    # ── LEAGUE SELECTION ──────────────────────────────────────────────
+    sport_labels = {
+        "Men's College": "basketball_ncaab",
+        "Women's College": "basketball_ncaaw",
+        "NBA Professionals": "basketball_nba"
+    }
+    sel_sport_lbl = st.radio("Select League:", options=list(sport_labels.keys()), horizontal=True)
+    active_sport = sport_labels[sel_sport_lbl]
+
+    # Pull dynamic list of 362 Div 1 teams (using selected sport)
+    all_teams_map = get_all_espn_teams(sport_key=active_sport)
     
     # Store all db stats for sorting lookups
     db_stats = {s.get("team_name", ""): s for s in ledger.get_all_team_stats()}
@@ -2083,7 +2425,7 @@ elif st.session_state.page == "teams":
     search_q = f1.text_input("", placeholder="🔍 Search teams...", label_visibility="collapsed")
     
     from src.tools.espn_client import get_all_standings
-    all_standings = get_all_standings()
+    all_standings = get_all_standings()  # API does not slice standings explicitly, but team IDs are filtered above
     
     ALL_D1_CONFS = [
         "America East", "American", "ASUN", "Atlantic 10", "ACC", "Big 12", "Big East", 
@@ -2175,7 +2517,7 @@ elif st.session_state.page == "teams":
             border-radius:14px;padding:1rem .8rem;text-align:center;
             transition:border-color .2s;margin-bottom:.5rem">
   {rank_badge}
-  <img src="{logo_url(espn_id)}" style="width:64px;height:64px;object-fit:contain"
+  <img src="{logo_url(espn_id, active_sport)}" style="width:64px;height:64px;object-fit:contain"
        onerror="this.style.display='none'">
   <div style="font-size:.82rem;font-weight:700;margin-top:.5rem;line-height:1.2">
     {team_name.split()[0]} {team_name.split()[1] if len(team_name.split()) > 1 else ''}
@@ -2183,4 +2525,4 @@ elif st.session_state.page == "teams":
 </div>"""
                 st.markdown(card_html, unsafe_allow_html=True)
                 if st.button("View", key=f"team_{espn_id}", use_container_width=True):
-                    show_team(team_name, espn_id, rank)
+                    show_team(team_name, espn_id, rank, active_sport)

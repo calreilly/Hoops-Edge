@@ -82,6 +82,7 @@ class BetLedger:
             "status": str,           # 'pending', 'approved', 'rejected', 'settled'
             "result": str,           # 'win', 'loss', 'push', null
             "profit_loss": float,    # units won/lost after settlement
+            "kelly_multiplier": float,
             "created_at": str,
         }, pk="id", if_not_exists=True)
 
@@ -103,6 +104,7 @@ class BetLedger:
             "ats_record": str,
             "conference": str,
             "ranking": int,
+            "ai_overview": str,
             "last_updated": str,
         }, pk="team_id", if_not_exists=True)
 
@@ -128,6 +130,13 @@ class BetLedger:
         existing_cols = {col.name for col in self.db["team_stats"].columns}
         if "ranking" not in existing_cols:
             self.db.execute("ALTER TABLE team_stats ADD COLUMN ranking INTEGER")
+            
+        if "ai_overview" not in existing_cols:
+            self.db.execute("ALTER TABLE team_stats ADD COLUMN ai_overview TEXT")
+
+        existing_bet_cols = {col.name for col in self.db["bets"].columns}
+        if "kelly_multiplier" not in existing_bet_cols:
+            self.db.execute("ALTER TABLE bets ADD COLUMN kelly_multiplier REAL DEFAULT 0.25")
 
         # Seed bankroll if empty
         if not list(self.db["bankroll"].rows):
@@ -163,6 +172,7 @@ class BetLedger:
             "status": "pending",
             "result": None,
             "profit_loss": None,
+            "kelly_multiplier": getattr(rec.ev_analysis, "kelly_multiplier", 0.25),
             "created_at": datetime.utcnow().isoformat(),
         }
         self.db["bets"].insert(row)

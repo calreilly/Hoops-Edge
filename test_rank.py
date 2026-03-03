@@ -1,4 +1,7 @@
-import requests
-resp = requests.get("https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/rankings")
-data = resp.json()
-print(data["rankings"][0]["ranks"][0]["team"])
+from src.tools.odds_client import fetch_live_rankings
+rankings = fetch_live_rankings()
+for team, (rank, rec) in rankings.items():
+    if "nebraska" in team or "maryland" in team:
+        print(f"FOUND in rankings: {team} -> {rank}, {rec}")
+
+print("Total rankings:", len(rankings))

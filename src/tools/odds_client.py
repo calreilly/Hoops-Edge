@@ -20,8 +20,8 @@ load_dotenv()
 
 ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 BASE_URL = "https://api.the-odds-api.com/v4"
-SPORT = "basketball_ncaab"
 FANDUEL_KEY = "fanduel"
+TRACKED_BOOKS = "fanduel,draftkings,betmgm,caesars"
 
 
 def _american_to_model(
@@ -40,10 +40,10 @@ def _american_to_model(
     )
 
 
-def fetch_fanduel_ncaab_odds() -> list[dict]:
+def fetch_odds_for_sport(sport_key: str) -> list[dict]:
     """
-    Fetch raw odds from The-Odds-API for today's NCAAB games on FanDuel.
-    Returns the raw JSON list from the API.
+    Fetch raw odds from The-Odds-API for today's games on multiple tracked sportsbooks.
+    Returns the raw JSON list from the API for the given sport_key.
     Raises RuntimeError if the API key is missing or request fails.
     """
     if not ODDS_API_KEY:
@@ -56,12 +56,12 @@ def fetch_fanduel_ncaab_odds() -> list[dict]:
         "apiKey": ODDS_API_KEY,
         "regions": "us",
         "markets": "spreads,totals,h2h",
-        "bookmakers": FANDUEL_KEY,
+        "bookmakers": TRACKED_BOOKS,
         "oddsFormat": "american",
         "dateFormat": "iso",
     }
 
-    resp = requests.get(f"{BASE_URL}/sports/{SPORT}/odds", params=params, timeout=10)
+    resp = requests.get(f"{BASE_URL}/sports/{sport_key}/odds", params=params, timeout=10)
 
     # Log remaining quota from response headers
     remaining = resp.headers.get("x-requests-remaining", "?")
@@ -259,6 +259,7 @@ def parse_odds_response(
     ledger: BetLedger,
     live_rankings: Optional[dict] = None,
     daily_records: Optional[dict[str, str]] = None,
+    sport_key: str = "basketball_ncaab"
 ) -> list[Game]:
     """
     Transform The-Odds-API JSON into our Game Pydantic models,
@@ -282,16 +283,18 @@ def parse_odds_response(
         game_id = raw["id"]
 
         # Initialize odds slots
-        home_spread: Optional[Odds] = None
-        away_spread: Optional[Odds] = None
-        over_odds: Optional[Odds] = None
-        under_odds: Optional[Odds] = None
-        home_ml: Optional[Odds] = None
-        away_ml: Optional[Odds] = None
+        home_spread: dict[str, Odds] = {}
+        away_spread: dict[str, Odds] = {}
+        over_odds: dict[str, Odds] = {}
+        under_odds: dict[str, Odds] = {}
+        home_ml: dict[str, Odds] = {}
+        away_ml: dict[str, Odds] = {}
 
-        # Parse bookmaker (FanDuel)
+        # Parse tracked bookmakers
+        tracked_keys = TRACKED_BOOKS.split(",")
         for bookmaker in raw.get("bookmakers", []):
-            if bookmaker["key"] != FANDUEL_KEY:
+            bkey = bookmaker["key"]
+            if bkey not in tracked_keys:
                 continue
 
             for market in bookmaker.get("markets", []):
@@ -301,41 +304,41 @@ def parse_odds_response(
                     for outcome in market["outcomes"]:
                         side = BetSide.HOME if outcome["name"] == home_team else BetSide.AWAY
                         odds_obj = _american_to_model(
-                            FANDUEL_KEY, BetType.SPREAD, side,
+                            bkey, BetType.SPREAD, side,
                             int(outcome["price"]), outcome.get("point")
                         )
                         if side == BetSide.HOME:
-                            home_spread = odds_obj
+                            home_spread[bkey] = odds_obj
                         else:
-                            away_spread = odds_obj
+                            away_spread[bkey] = odds_obj
 
                 elif mkey == "totals":
                     for outcome in market["outcomes"]:
                         side = BetSide.OVER if outcome["name"] == "Over" else BetSide.UNDER
                         odds_obj = _american_to_model(
-                            FANDUEL_KEY, BetType.TOTAL, side,
+                            bkey, BetType.TOTAL, side,
                             int(outcome["price"]), outcome.get("point")
                         )
                         if side == BetSide.OVER:
-                            over_odds = odds_obj
+                            over_odds[bkey] = odds_obj
                         else:
-                            under_odds = odds_obj
+                            under_odds[bkey] = odds_obj
 
                 elif mkey == "h2h":
                     for outcome in market["outcomes"]:
                         side = BetSide.HOME if outcome["name"] == home_team else BetSide.AWAY
                         odds_obj = _american_to_model(
-                            FANDUEL_KEY, BetType.MONEYLINE, side,
+                            bkey, BetType.MONEYLINE, side,
                             int(outcome["price"])
                         )
                         if side == BetSide.HOME:
-                            home_ml = odds_obj
+                            home_ml[bkey] = odds_obj
                         else:
-                            away_ml = odds_obj
+                            away_ml[bkey] = odds_obj
 
-        # Skip games with no FanDuel lines at all
-        if not any([home_spread, away_spread, over_odds, under_odds]):
-            print(f"  [Odds API] Skipping {away_team} @ {home_team} — no FanDuel lines found")
+        # Skip games with no lines at all from any tracked bookmaker
+        if not home_spread and not away_spread and not over_odds and not under_odds and not home_ml and not away_ml:
+            print(f"  [Odds API] Skipping {away_team} @ {home_team} — no lines found")
             continue
 
         # Look up team stats from our DB, then apply live AP rankings
@@ -347,16 +350,30 @@ def parse_odds_response(
         )
         
         # Fallback for unranked teams not in local DB: use daily_records
+        # Use word-boundary matching to avoid 'Maryland' → 'Maryland-Eastern Shore'
+        import re as _re
+        def _match_record(team_name: str, records: dict[str, str]) -> str:
+            needle = team_name.lower()
+            candidates = [
+                (abs(len(t) - len(needle)), r)
+                for t, r in records.items()
+                if _re.search(r'\b' + _re.escape(needle) + r'\b', t)
+            ]
+            if candidates:
+                return sorted(candidates)[0][1]  # shortest delta = most specific match
+            return "0-0"
+
         if home_stats is None and daily_records:
-            hr = next((r for t, r in daily_records.items() if t in home_team.lower() or home_team.lower() in t), "0-0")
+            hr = _match_record(home_team, daily_records)
             home_stats = TeamStats(team_id=home_team, team_name=home_team, record=hr, last_updated=datetime.now())
             
         if away_stats is None and daily_records:
-            ar = next((r for t, r in daily_records.items() if t in away_team.lower() or away_team.lower() in t), "0-0")
+            ar = _match_record(away_team, daily_records)
             away_stats = TeamStats(team_id=away_team, team_name=away_team, record=ar, last_updated=datetime.now())
 
         games.append(Game(
             game_id=game_id,
+            sport_key=sport_key,
             home_team=home_team,
             away_team=away_team,
             game_time=game_time,
@@ -374,9 +391,10 @@ def parse_odds_response(
     return games
 
 
-def get_live_games(ledger: BetLedger) -> list[Game]:
+def get_live_games(ledger: BetLedger, sport_keys: list[str] = ["basketball_ncaab"]) -> list[Game]:
     """
-    Main entry point: fetch today's real NCAAB FanDuel slate.
+    Main entry point: fetch today's real slate for the given sports.
+    Iterates through the requested sports and concats them.
     Falls back to mock data if ODDS_API_KEY is not set.
     """
     if not ODDS_API_KEY:
@@ -385,17 +403,24 @@ def get_live_games(ledger: BetLedger) -> list[Game]:
         from src.tools.mock_odds import get_mock_games
         return get_mock_games()
 
-    # Fetch live AP rankings BEFORE parsing odds (zero cost, no auth)
     live_rankings = fetch_live_rankings()
     daily_records = fetch_daily_records()
 
-    raw = fetch_fanduel_ncaab_odds()
-    games = parse_odds_response(raw, ledger, live_rankings=live_rankings, daily_records=daily_records)
+    all_games = []
+    
+    for sport in sport_keys:
+        try:
+            raw = fetch_odds_for_sport(sport)
+            games = parse_odds_response(raw, ledger, live_rankings=live_rankings, daily_records=daily_records, sport_key=sport)
+            all_games.extend(games)
+            print(f"  ✅ Fetched {len(games)} live {sport} games from FanDuel.")
+        except Exception as e:
+            print(f"  ❌ Error fetching {sport}: {e}")
 
-    if not games:
-        print("  ℹ️  No NCAAB games with FanDuel lines today. Using mock data.")
+    if not all_games:
+        print("  ℹ️  No games with FanDuel lines today across requested sports. Using mock data.")
         from src.tools.mock_odds import get_mock_games
         return get_mock_games()
 
-    print(f"  ✅ Fetched {len(games)} live NCAAB games from FanDuel.\n")
-    return games
+    print(f"\n  ✅ Combined Slate: {len(all_games)} games ready for EV Analysis.\n")
+    return all_games

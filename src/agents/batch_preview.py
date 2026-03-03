@@ -29,7 +29,7 @@ preview_agent = Agent(
     retries=1,
 )
 
-async def generate_slate_previews(games: list[Game]) -> dict[str, str]:
+async def generate_slate_previews(games: list[Game], bookmaker: str = "fanduel") -> dict[str, str]:
     """
     Run a single batch LLM call to preview the given games.
     Returns: {game_id: "2 sentence preview text"}
@@ -40,6 +40,8 @@ async def generate_slate_previews(games: list[Game]) -> dict[str, str]:
     # Condense payload to save tokens
     condensed = []
     for g in games:
+        ho = g.home_odds.get(bookmaker)
+        to = g.total_over_odds.get(bookmaker)
         condensed.append({
             "game_id": g.game_id,
             "matchup": f"{g.away_team} @ {g.home_team}",
@@ -55,8 +57,8 @@ async def generate_slate_previews(games: list[Game]) -> dict[str, str]:
                 "pace": g.home_stats.pace if g.home_stats else None,
                 "3pr": g.home_stats.three_point_rate if g.home_stats else None,
             } if g.home_stats else None,
-            "spread": f"{g.home_team} {g.home_odds.line:+.1f}" if g.home_odds and g.home_odds.line else "N/A",
-            "total": g.total_over_odds.line if g.total_over_odds and g.total_over_odds.line else "N/A",
+            "spread": f"{g.home_team} {ho.line:+.1f}" if ho and ho.line else "N/A",
+            "total": to.line if to and to.line else "N/A",
         })
 
     prompt = f"Analyze these {len(games)} games:\n{json.dumps(condensed, indent=2)}"
@@ -76,3 +78,35 @@ async def generate_slate_previews(games: list[Game]) -> dict[str, str]:
         print(f"Error generating slate previews: {e}")
         return {}
 
+
+SCOUTING_PROMPT = """
+You are Hoops Edge, a veteran college basketball scout.
+Your task is to review a team's statistical profile and write a tight, 3-sentence qualitative scouting report.
+1. Describe their offensive identity (e.g., fast-paced run-and-gun, slow methodical halfcourt, heavy 3-point reliance).
+2. Describe their defensive identity (e.g., elite rim protection, turnover-forcing pressure, vulnerable inside).
+3. Conclude with a single sentence summarizing their ceiling or playstyle as a betting proposition.
+Do not use bullet points. Make it sound professional, analytical, and insightful.
+"""
+
+scouting_agent = Agent(
+    model=model,
+    system_prompt=SCOUTING_PROMPT,
+    output_type=str,
+    retries=1,
+)
+
+async def generate_team_scouting_report(team_name: str, stats_dict: dict) -> str:
+    """
+    Generate a 3-sentence qualitative scouting report based on a team's statistical profile.
+    """
+    if not stats_dict:
+        return f"Insufficient statistical data available to scout {team_name} at this time."
+        
+    prompt = f"Team: {team_name}\nStatistics Profile:\n{json.dumps(stats_dict, indent=2)}"
+    
+    try:
+        result = await scouting_agent.run(prompt)
+        return result.output
+    except Exception as e:
+        print(f"  [Scouting Agent] Failed to generate report for {team_name}: {e}")
+        return "Scouting report generation failed due to a transient API issue."

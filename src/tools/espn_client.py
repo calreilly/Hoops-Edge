@@ -6,7 +6,11 @@ All endpoints: site.api.espn.com/apis/site/v2/sports/basketball/mens-college-bas
 import requests
 from typing import Optional
 
-BASE = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball"
+BASE_URLS = {
+    "basketball_ncaab": "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball",
+    "basketball_ncaaw": "https://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball",
+    "basketball_nba": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
+}
 TIMEOUT = 6
 
 
@@ -20,13 +24,16 @@ def _get(url: str) -> Optional[dict]:
     return None
 
 
-def logo_url(espn_id: int) -> str:
+def logo_url(espn_id: int, sport_key: str = "basketball_ncaab") -> str:
+    if "nba" in sport_key:
+        return f"https://a.espncdn.com/i/teamlogos/nba/500/{espn_id}.png"
     return f"https://a.espncdn.com/i/teamlogos/ncaa/500/{espn_id}.png"
 
 
-def fetch_team_summary(espn_id: int) -> dict:
+def fetch_team_summary(espn_id: int, sport_key: str = "basketball_ncaab") -> dict:
     """Team name, record, ranking, conference standing, home/road splits."""
-    d = _get(f"{BASE}/teams/{espn_id}")
+    base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+    d = _get(f"{base}/teams/{espn_id}")
     if not d:
         return {}
     t = d.get("team", {})
@@ -44,7 +51,7 @@ def fetch_team_summary(espn_id: int) -> dict:
         "espn_id":       espn_id,
         "name":          t.get("displayName", ""),
         "shortName":     t.get("shortDisplayName", ""),
-        "logo":          logos[0]["href"] if logos else logo_url(espn_id),
+        "logo":          logos[0]["href"] if logos else logo_url(espn_id, sport_key),
         "color":         t.get("color", "1a2236"),
         "alternateColor":t.get("alternateColor", "f97316"),
         "record":        record_map.get("total", ""),
@@ -57,9 +64,10 @@ def fetch_team_summary(espn_id: int) -> dict:
     }
 
 
-def fetch_team_roster(espn_id: int) -> list[dict]:
+def fetch_team_roster(espn_id: int, sport_key: str = "basketball_ncaab") -> list[dict]:
     """Return list of player dicts."""
-    d = _get(f"{BASE}/teams/{espn_id}/roster")
+    base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+    d = _get(f"{base}/teams/{espn_id}/roster")
     if not d:
         return []
     players = []
@@ -68,23 +76,39 @@ def fetch_team_roster(espn_id: int) -> list[dict]:
         for s in a.get("statistics", {}).get("splits", {}).get("categories", []):
             for stat in s.get("stats", []):
                 stats[stat.get("abbreviation", "")] = stat.get("displayValue", "")
+                
+        # Handle dict vs string structures for bio data
+        headshot_raw = a.get("headshot", "")
+        headshot = headshot_raw.get("href", "") if isinstance(headshot_raw, dict) else headshot_raw
+        
+        bp_raw = a.get("birthPlace", "")
+        birthplace = bp_raw.get("city", "") if isinstance(bp_raw, dict) else bp_raw
+        
+        pos_raw = a.get("position", {})
+        position = pos_raw.get("abbreviation", "") if isinstance(pos_raw, dict) else pos_raw
+
+        exp_raw = a.get("experience", {})
+        year = exp_raw.get("displayValue", "") if isinstance(exp_raw, dict) else exp_raw
+
         players.append({
             "id": a.get("id"),
             "name": a.get("displayName", ""),
             "jersey": a.get("jersey", ""),
-            "position": a.get("position", {}).get("abbreviation", ""),
-            "year": a.get("experience", {}).get("displayValue", ""),
-            "height": a.get("height", ""),
-            "weight": a.get("weight", ""),
-            "headshot": a.get("headshot", {}).get("href", ""),
+            "position": position,
+            "year": year,
+            "height": a.get("displayHeight", a.get("height", "")),
+            "weight": a.get("displayWeight", a.get("weight", "")),
+            "headshot": headshot,
+            "birthPlace": birthplace,
             "stats": stats,
         })
     return players
 
 
-def fetch_team_schedule(espn_id: int) -> list[dict]:
+def fetch_team_schedule(espn_id: int, sport_key: str = "basketball_ncaab") -> list[dict]:
     """Return list of game dicts for current season."""
-    d = _get(f"{BASE}/teams/{espn_id}/schedule")
+    base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+    d = _get(f"{base}/teams/{espn_id}/schedule")
     if not d:
         return []
     games = []
@@ -182,9 +206,10 @@ def fetch_best_worst(
     return best_wins, worst_losses
 
 
-def fetch_boxscore(event_id: str) -> dict:
+def fetch_boxscore(event_id: str, sport_key: str = "basketball_ncaab") -> dict:
     """Return simplified box score for a completed game."""
-    d = _get(f"{BASE}/summary?event={event_id}")
+    base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+    d = _get(f"{base}/summary?event={event_id}")
     if not d:
         return {}
 
@@ -345,14 +370,59 @@ def fetch_team_stat_leaders(espn_id: int, team_display_name: str = "") -> dict:
     return {}
 
 
-# ── Global Team ID Mapper ───────────────────────────────────────────────────────
-_ALL_TEAMS_CACHE = {}
+_ALL_TEAMS_CACHE: dict[str, dict[str, int]] = {}
+_ALL_TEAMS_DISPLAY_MAP: dict[str, dict[str, int]] = {}
 
-def get_espn_team_id(team_name: str) -> Optional[int]:
+# Explicit disambiguation: maps how The-Odds-API names teams → canonical ESPN displayName.
+# This prevents short names (e.g. "North Carolina") from matching longer ESPN names
+# that contain the same words (e.g. "North Carolina Central Eagles").
+_TEAM_NAME_ALIASES: dict[str, str] = {
+    # ACC / ACC-adjacent blue-bloods with risky overlaps
+    "north carolina":              "North Carolina Tar Heels",
+    "unc":                         "North Carolina Tar Heels",
+    "nc state":                    "NC State Wolfpack",
+    "north carolina state":        "NC State Wolfpack",
+    # Maryland overlap (Maryland-Eastern Shore)
+    "maryland":                    "Maryland Terrapins",
+    # Mississippi overlap (Mississippi Valley State)
+    "ole miss":                    "Ole Miss Rebels",
+    "mississippi":                 "Ole Miss Rebels",
+    # Alabama overlap (Alabama A&M, Alabama State)
+    "alabama":                     "Alabama Crimson Tide",
+    # Florida overlap (Florida A&M, Florida Atlantic, etc.)
+    "florida":                     "Florida Gators",
+    # Texas overlap (Texas Southern, Texas State, etc.)
+    "texas":                       "Texas Longhorns",
+    # Oklahoma overlap (Oklahoma State)
+    "oklahoma":                    "Oklahoma Sooners",
+    # Georgia overlap (Georgia Southern, Georgia State, Georgia Tech)
+    "georgia":                     "Georgia Bulldogs",
+    # Arkansas overlap (Arkansas State, Arkansas-Pine Bluff)
+    "arkansas":                    "Arkansas Razorbacks",
+    # Michigan overlap (Michigan State)
+    "michigan":                    "Michigan Wolverines",
+    # Indiana overlap (Indiana State)
+    "indiana":                     "Indiana Hoosiers",
+    # Oregon overlap (Oregon State)
+    "oregon":                      "Oregon Ducks",
+    # Kansas overlap (Kansas City / Kansas State handled by 'kansas state' exact)
+    "kansas":                      "Kansas Jayhawks",
+    # Washington overlap (Washington State)
+    "washington":                  "Washington Huskies",
+    # Connecticut / UConn overlap
+    "connecticut":                 "UConn Huskies",
+    "uconn":                       "UConn Huskies",
+}
+
+
+def get_espn_team_id(team_name: str, sport_key: str = "basketball_ncaab") -> Optional[int]:
     """Fetch and cache all 362 Div 1 basketball teams to resolve IDs by name."""
-    global _ALL_TEAMS_CACHE
-    if not _ALL_TEAMS_CACHE:
-        url = f"{BASE}/teams?limit=400"
+    global _ALL_TEAMS_CACHE, _ALL_TEAMS_DISPLAY_MAP
+    if sport_key not in _ALL_TEAMS_CACHE:
+        _ALL_TEAMS_CACHE[sport_key] = {}
+        _ALL_TEAMS_DISPLAY_MAP[sport_key] = {}
+        base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+        url = f"{base}/teams?limit=400"
         d = _get(url)
         if d:
             teams = d.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
@@ -361,30 +431,60 @@ def get_espn_team_id(team_name: str) -> Optional[int]:
                 tid = int(t.get("id", 0))
                 if tid:
                     dn = t.get("displayName", "")
-                    _ALL_TEAMS_DISPLAY_MAP[dn] = tid
-                    _ALL_TEAMS_CACHE[dn.lower()] = tid
-                    _ALL_TEAMS_CACHE[t.get("shortDisplayName", "").lower()] = tid
-                    _ALL_TEAMS_CACHE[t.get("nickname", "").lower()] = tid
+                    _ALL_TEAMS_DISPLAY_MAP[sport_key][dn] = tid
+                    _ALL_TEAMS_CACHE[sport_key][dn.lower()] = tid
+                    _ALL_TEAMS_CACHE[sport_key][t.get("shortDisplayName", "").lower()] = tid
+                    if t.get("nickname"):
+                        _ALL_TEAMS_CACHE[sport_key][t.get("nickname", "").lower()] = tid
 
-    # Try exact match, then substring match
-    search = team_name.lower().replace(" state", " st").replace(" st.", " st")
-    for k, v in _ALL_TEAMS_CACHE.items():
-        if search == k or search == k.replace(" state", " st"):
+    search = team_name.lower().strip()
+
+    # Step 1: Check explicit disambiguation alias table first
+    canonical = _TEAM_NAME_ALIASES.get(search)
+    if canonical:
+        # Look up canonical name in cache
+        result = _ALL_TEAMS_CACHE.get(sport_key, {}).get(canonical.lower())
+        if result:
+            return result
+
+    # Step 2: Exact match (after normalising "state" → "st")
+    search_norm = search.replace(" state", " st").replace(" st.", " st")
+    for k, v in _ALL_TEAMS_CACHE[sport_key].items():
+        k_norm = k.replace(" state", " st").replace(" st.", " st")
+        if search_norm == k_norm:
             return v
-    for k, v in _ALL_TEAMS_CACHE.items():
-        if search in k or k in search:
-            return v
+
+    import re
+    # Step 3: Word-boundary fallback — but prefer the SHORTEST matching key
+    # (so "Maryland" won't grab "Maryland-Eastern Shore" when "Maryland Terrapins" exists)
+    candidates: list[tuple[int, str, int]] = []  # (key_len, key, team_id)
+    for k, v in _ALL_TEAMS_CACHE.get(sport_key, {}).items():
+        if not k:
+            continue
+        k_norm = k.replace(" state", " st").replace(" st.", " st")
+        # The search term must appear as a complete word sequence inside k, OR k inside search
+        if re.search(r'\b' + re.escape(search_norm) + r'\b', k_norm):
+            candidates.append((len(k), k, v))
+
+    if candidates:
+        # Prefer the candidate whose key is closest in length to the search term
+        # This ensures "Maryland Terrapins" wins over "Maryland-Eastern Shore Hawks"
+        candidates.sort(key=lambda x: abs(x[0] - len(search)))
+        return candidates[0][2]
+
     return None
 
 
+
 # ── Venue lookup from team schedule ──────────────────────────────────────────────
-def fetch_game_venue(espn_team_id: Optional[int], opponent_name: str) -> str:
+def fetch_game_venue(espn_team_id: Optional[int], opponent_name: str, sport_key: str = "basketball_ncaab") -> str:
     """
     Search a team's schedule to pull the exact game venue.
     """
     if not espn_team_id:
         return ""
-    url = f"{BASE}/teams/{espn_team_id}/schedule"
+    base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+    url = f"{base}/teams/{espn_team_id}/schedule"
     d = _get(url)
     if not d:
         return ""
@@ -419,36 +519,33 @@ def fetch_game_venue(espn_team_id: Optional[int], opponent_name: str) -> str:
 
 
 
-# ── ESPN ID map for our 30 seeded teams ────────────────────────────────────────
-# Used to build the Teams Explorer grid
-TE_ALL_TEAMS_CACHE: dict[str, int] = {}
-_ALL_TEAMS_DISPLAY_MAP: dict[str, int] = {}
-
-def get_all_espn_teams() -> dict[str, int]:
+def get_all_espn_teams(sport_key: str = "basketball_ncaab") -> dict[str, int]:
     """Return a map of Team Display Name -> ESPN ID for all Div 1 teams."""
     global _ALL_TEAMS_DISPLAY_MAP
-    if not _ALL_TEAMS_DISPLAY_MAP:
+    if sport_key not in _ALL_TEAMS_DISPLAY_MAP:
         # Just call this to populate the caches
-        get_espn_team_id("Duke")
-    return _ALL_TEAMS_DISPLAY_MAP
+        get_espn_team_id("Unknown", sport_key)
+    return _ALL_TEAMS_DISPLAY_MAP.get(sport_key, {})
 
 
 _ALL_STANDINGS_CACHE = {}
 
-def get_all_standings() -> dict[str, dict]:
+def get_all_standings(sport_key: str = "basketball_ncaab") -> dict[str, dict]:
     """
     Fetch standing info for all D1 teams.
     Returns: { "Team Name" : {"conference": "ACC", "conf_win_pct": 0.850} }
     """
     global _ALL_STANDINGS_CACHE
-    if _ALL_STANDINGS_CACHE:
-        return _ALL_STANDINGS_CACHE
+    if sport_key in _ALL_STANDINGS_CACHE:
+        return _ALL_STANDINGS_CACHE[sport_key]
         
-    url = BASE.replace("/site/v2", "/v2") + "/standings"
+    base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+    url = base.replace("/site/v2", "/v2") + "/standings"
     d = _get(url)
     if not d:
         return {}
         
+    cache_dict = {}
     for conf in d.get("children", []):
         c_name = conf.get("name", "").replace(" Conference", "").replace(" Athletic", "")
         
@@ -484,12 +581,13 @@ def get_all_standings() -> dict[str, dict]:
                 if stat.get("type") == "vsconf_winpercent":
                     wpct = float(stat.get("value", 0.0))
                     
-            _ALL_STANDINGS_CACHE[t_name] = {
+            cache_dict[t_name] = {
                 "conference": c_name,
                 "conf_win_pct": wpct
             }
             
-    return _ALL_STANDINGS_CACHE
+    _ALL_STANDINGS_CACHE[sport_key] = cache_dict
+    return cache_dict
 
 TEAM_ESPN_IDS: dict[str, int] = {
     "Auburn Tigers":             2,

@@ -59,7 +59,8 @@ def apply_kelly_to_recommendation(rec) -> None:
         decimal_odds = 1 + (ao / 100)
 
     proj_prob = rec.ev_analysis.projected_win_probability
-    kelly_units = quarter_kelly_units(proj_prob, decimal_odds)
+    multiplier = getattr(rec.ev_analysis, "kelly_multiplier", 0.25)
+    kelly_units = quarter_kelly_units(proj_prob, decimal_odds, fraction=multiplier)
 
     # Override whatever the LLM said
     rec.recommended_units = kelly_units
