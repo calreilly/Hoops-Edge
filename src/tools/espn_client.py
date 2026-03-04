@@ -589,7 +589,142 @@ def get_all_standings(sport_key: str = "basketball_ncaab") -> dict[str, dict]:
     _ALL_STANDINGS_CACHE[sport_key] = cache_dict
     return cache_dict
 
+
+# ── Live game event lookup ───────────────────────────────────────────────────
+
+def _fuzzy_match_teams(away: str, home: str, event_away: str, event_home: str) -> bool:
+    """Return True if odds-api team names closely match an ESPN event's teams."""
+    import string as _string
+    STOP = {"st", "state", "the", "of", "at", "university", "college"}
+
+    def _words(name: str) -> set:
+        return {
+            w.translate(str.maketrans("", "", _string.punctuation))
+            for w in name.lower().split()
+            if w.translate(str.maketrans("", "", _string.punctuation)) not in STOP
+        }
+
+    away_w, home_w = _words(away), _words(home)
+    evt_away_w, evt_home_w = _words(event_away), _words(event_home)
+    return len(away_w & evt_away_w) >= 1 and len(home_w & evt_home_w) >= 1
+
+
+def find_event_id(
+    away_team: str,
+    home_team: str,
+    sport_key: str = "basketball_ncaab",
+) -> Optional[str]:
+    """Search today's ESPN scoreboard to find the event ID for a matchup."""
+    from datetime import date, timedelta
+    base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+    for delta in [0, -1, 1]:
+        target = (date.today() + timedelta(days=delta)).strftime("%Y%m%d")
+        data = _get(f"{base}/scoreboard?dates={target}&limit=400")
+        if not data:
+            continue
+        for event in data.get("events", []):
+            for comp in event.get("competitions", []):
+                comps = comp.get("competitors", [])
+                evt_home = next(
+                    (f"{t['team'].get('location','')} {t['team'].get('name','')}".strip()
+                     for t in comps if t.get("homeAway") == "home"), ""
+                )
+                evt_away = next(
+                    (f"{t['team'].get('location','')} {t['team'].get('name','')}".strip()
+                     for t in comps if t.get("homeAway") == "away"), ""
+                )
+                if _fuzzy_match_teams(away_team, home_team, evt_away, evt_home):
+                    return event.get("id")
+    return None
+
+
+def fetch_live_boxscore(
+    event_id: str,
+    sport_key: str = "basketball_ncaab",
+) -> dict:
+    """
+    Return an enriched boxscore dict for a live or completed game.
+
+    Keys:
+        status        - "pre" | "in" | "post"
+        home_team / away_team  - display names
+        home_score / away_score - ints
+        period        - int (half for CBB)
+        clock         - str e.g. "14:22"
+        home_logo / away_logo  - logo URL strings
+        teams         - list[{team, players: [{name, position, stats, labels}]}]
+        result        - "Team A 72, Team B 68" (empty if in-progress)
+    """
+    base = BASE_URLS.get(sport_key, BASE_URLS["basketball_ncaab"])
+    d = _get(f"{base}/summary?event={event_id}")
+    if not d:
+        return {}
+
+    header = d.get("header", {})
+    comp0 = (header.get("competitions") or [{}])[0]
+    status_obj = comp0.get("status", {})
+    game_status = status_obj.get("type", {}).get("state", "pre")
+    period = status_obj.get("period", 0)
+    clock = status_obj.get("displayClock", "")
+
+    home_score, away_score = 0, 0
+    home_name, away_name = "", ""
+    home_logo_url, away_logo_url = "", ""
+
+    for c in comp0.get("competitors", []):
+        score = int(c.get("score", 0) or 0)
+        name = c.get("team", {}).get("displayName", "")
+        logo = c.get("team", {}).get("logo", "")
+        tid = c.get("team", {}).get("id", "")
+        if not logo and tid:
+            try:
+                logo = logo_url(int(tid), sport_key)
+            except Exception:
+                pass
+        if c.get("homeAway") == "home":
+            home_score, home_name, home_logo_url = score, name, logo
+        else:
+            away_score, away_name, away_logo_url = score, name, logo
+
+    teams_box = []
+    for team_entry in d.get("boxscore", {}).get("players", []):
+        team_name = team_entry.get("team", {}).get("displayName", "")
+        players_rows = []
+        for cat in team_entry.get("statistics", []):
+            labels = cat.get("labels", [])
+            for p in cat.get("athletes", []):
+                if p.get("didNotPlay"):
+                    continue
+                athlete = p.get("athlete", {})
+                pos = athlete.get("position", {})
+                players_rows.append({
+                    "name":     athlete.get("displayName", ""),
+                    "position": pos.get("abbreviation", "") if isinstance(pos, dict) else "",
+                    "stats":    p.get("stats", []),
+                    "labels":   labels,
+                })
+            break
+        teams_box.append({"team": team_name, "players": players_rows})
+
+    result_str = f"{away_name} {away_score}, {home_name} {home_score}" if game_status == "post" else ""
+
+    return {
+        "status":     game_status,
+        "home_team":  home_name,
+        "away_team":  away_name,
+        "home_score": home_score,
+        "away_score": away_score,
+        "home_logo":  home_logo_url,
+        "away_logo":  away_logo_url,
+        "period":     period,
+        "clock":      clock,
+        "teams":      teams_box,
+        "result":     result_str,
+    }
+
+
 TEAM_ESPN_IDS: dict[str, int] = {
+
     "Auburn Tigers":             2,
     "Houston Cougars":           248,
     "Duke Blue Devils":          150,

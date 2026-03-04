@@ -16,6 +16,18 @@ INSTRUCTIONS:
 4. Be objective. If the initial rationale was wrong, say so.
 """
 
+LIVE_SYSTEM_PROMPT = """
+You are Hoops Edge, an elite quantitative sports betting analyst providing real-time game tracking.
+Your task is to analyze an in-progress or recently completed college basketball game in the context of an open bet.
+
+INSTRUCTIONS:
+1. You will receive the original pre-game bet rationale, the bet market/side, and the current live game score/box score.
+2. Assess whether the bet thesis is currently playing out — is the bet on track to win, in trouble, or too early to tell?
+3. Identify 2-3 key in-game factors (scoring runs, efficiency, turnovers, shooting %) driving the current score.
+4. Give a confidence update: is the original rationale still valid given what you see?
+5. Be concise (3-4 sentences). Use specific stats from the box score where possible.
+"""
+
 model = OpenAIModel(model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
 
 post_mortem_agent = Agent(
@@ -24,6 +36,14 @@ post_mortem_agent = Agent(
     output_type=str,
     retries=1,
 )
+
+live_analysis_agent = Agent(
+    model=model,
+    system_prompt=LIVE_SYSTEM_PROMPT,
+    output_type=str,
+    retries=1,
+)
+
 
 async def generate_post_mortem(
     matchup: str,
@@ -50,4 +70,31 @@ Result: {result.upper()}
 Write a 3-sentence retroactive post-mortem explaining why this bet succeeded or failed.
 """
     response = await post_mortem_agent.run(prompt)
+    return response.output
+
+
+async def generate_live_analysis(
+    matchup: str,
+    market: str,
+    rationale: str,
+    live_context: str,
+) -> str:
+    """
+    Run an LLM call to assess an in-progress or recently completed game
+    against the original bet thesis.
+    """
+    prompt = f"""
+## Bet Information
+Matchup: {matchup}
+Market: {market}
+
+## Original Pre-Game Rationale
+{rationale}
+
+## Current Live Game Context
+{live_context}
+
+Provide a 3-4 sentence live game analysis: is the bet currently on track, what key factors are driving the score, and is the original thesis still valid?
+"""
+    response = await live_analysis_agent.run(prompt)
     return response.output

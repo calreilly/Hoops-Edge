@@ -200,7 +200,8 @@ class BetLedger:
         })
 
     def get_pending_bets(self) -> list:
-        return list(self.db["bets"].rows_where("status = ?", ["pending"]))
+        return list(self.db["bets"].rows_where("status IN ('pending', 'approved')", []))
+
 
     def get_approved_bets(self) -> list:
         return list(self.db["bets"].rows_where("status = ?", ["approved"]))
