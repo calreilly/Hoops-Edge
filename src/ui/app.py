@@ -2548,66 +2548,92 @@ elif st.session_state.page == "teams":
 # PAGE: LIVE GAME ANALYSIS
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "live_game":
-    from src.tools.espn_client import find_event_id, fetch_live_boxscore
-    from src.agents.post_mortem import generate_live_analysis
+    # ── Imports ──────────────────────────────────────────────────────────────
+    from src.tools.espn_client import (
+        find_event_id, fetch_live_boxscore, get_espn_team_id, fetch_team_summary
+    )
+    from src.agents.post_mortem import generate_live_analysis, generate_scouting_report
     import asyncio
+    import pandas as pd
 
-    _back_col, _title_col = st.columns([1, 6])
-    with _back_col:
-        if st.button("← Back", key="live_back"):
+    # ── Header ───────────────────────────────────────────────────────────────
+    _hdr_l, _hdr_c, _hdr_r = st.columns([1, 5, 1])
+    with _hdr_l:
+        if st.button("\u2190 Back", key="live_back"):
             st.session_state.page = "home"
             st.rerun()
-    with _title_col:
-        st.markdown('<div class="page-title">📡 Live Game Analysis</div>', unsafe_allow_html=True)
+    with _hdr_c:
+        st.markdown(
+            '<div style="text-align:center;font-size:1.3rem;font-weight:800;'
+            'background:linear-gradient(135deg,#f97316,#fbbf24);'
+            '-webkit-background-clip:text;-webkit-text-fill-color:transparent">'
+            '\U0001f4e1 Live Game Analysis</div>',
+            unsafe_allow_html=True
+        )
 
-    bet_id   = st.session_state.get("live_game_bet_id")
+    # ── Resolve bet vs. bare game info ───────────────────────────────────────
+    bet_id    = st.session_state.get("live_game_bet_id")
     game_info = st.session_state.get("live_game_info")
-    bet = None
+    bet       = None
 
     if bet_id:
         bet_rows = list(ledger.db["bets"].rows_where("id = ?", [bet_id]))
-        if not bet_rows:
-            st.error("Bet not found in database.")
-            st.stop()
-        bet = bet_rows[0]
-        away_t      = bet["away_team"]
-        home_t      = bet["home_team"]
-        sport       = bet.get("sport_key", "basketball_ncaab")
-        _line       = bet.get("line")
-        _line_part  = f" ({_line:+.1f})" if _line is not None else ""
-        _bet_side   = bet["side"].upper()   # "HOME" or "AWAY"
-        market_str  = f"{bet['bet_type'].upper()} {_bet_side}{_line_part}"
+        if bet_rows:
+            bet = bet_rows[0]
+
+    # If arrived from Today's Slate with no explicit bet, auto-detect an open bet
+    if game_info and not bet:
+        _gi_away = (game_info.get("away") or "").lower()
+        _gi_home = (game_info.get("home") or "").lower()
+        for _ob in list(ledger.db["bets"].rows_where("status IN ('pending','approved')", [])):
+            if (_ob.get("away_team", "").lower() == _gi_away and
+                    _ob.get("home_team", "").lower() == _gi_home):
+                bet = _ob
+                break
+
+    if bet:
+        away_t     = bet["away_team"]
+        home_t     = bet["home_team"]
+        sport      = bet.get("sport_key", "basketball_ncaab")
+        _line      = bet.get("line")
+        _line_part = f" ({_line:+.1f})" if _line is not None else ""
+        _bet_side  = bet["side"].upper()
+        market_str = f"{bet['bet_type'].upper()} {_bet_side}{_line_part}"
     elif game_info:
-        away_t     = game_info["away"]
-        home_t     = game_info["home"]
+        away_t     = game_info.get("away", "")
+        home_t     = game_info.get("home", "")
         sport      = game_info.get("sport", "basketball_ncaab")
-        market_str = None  # no bet, just watching
+        market_str = None
         _bet_side  = None
     else:
-        st.warning("No game selected. Return home and click a bet or use 📡 from Today\'s Slate.")
+        st.warning("No game selected. Return home and click a bet card or use \U0001f4e1 in Today's Slate.")
         st.stop()
 
     matchup_str = f"{away_t} @ {home_t}"
 
-    # ── Find ESPN event ─────────────────────────────────────────────────────
-    with st.spinner(f"Looking up {matchup_str} on ESPN..."):
+    # ── Find ESPN event ───────────────────────────────────────────────────────
+    with st.spinner(f"Looking up {matchup_str} on ESPN\u2026"):
         event_id = find_event_id(away_t, home_t, sport)
 
     if not event_id:
-        st.warning(
-            f"⚠️ Could not find **{matchup_str}** on ESPN's current scoreboard. "
-            "The game may not have started yet or it wasn't on today's slate."
+        _no_game_bet_row = (
+            f'<div style="margin-top:.6rem;color:#fbbf24;font-size:.85rem">Your bet: <b>{market_str}</b></div>'
+            if market_str else ""
         )
-        st.markdown(f"""
-        <div class="glass-card" style="padding:1.2rem">
-            <div style="font-weight:700;font-size:1.05rem">{matchup_str}</div>
-            <div style="margin:.4rem 0;color:#9ca3af">{market_str}</div>
-            <div style="font-size:.9rem">{bet.get('summary','')}</div>
-        </div>""", unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#1c1c2e,#16213e);border:1px solid #2d3748;'
+            f'border-radius:12px;padding:1.5rem;text-align:center;margin:1rem 0">'
+            f'<div style="font-size:1.5rem;margin-bottom:.5rem">\u23f3</div>'
+            f'<div style="font-weight:700;font-size:1.1rem">{matchup_str}</div>'
+            f'<div style="color:#9ca3af;margin-top:.3rem">Game not found on ESPN\u2019s current scoreboard \u2014 '
+            f'it may not have started yet or isn\u2019t scheduled for today.</div>'
+            f'{_no_game_bet_row}</div>',
+            unsafe_allow_html=True
+        )
         st.stop()
 
-    # ── Fetch live box score ─────────────────────────────────────────────────
-    with st.spinner("Fetching live box score..."):
+    # ── Fetch live box score ──────────────────────────────────────────────────
+    with st.spinner("Fetching live data from ESPN\u2026"):
         box = fetch_live_boxscore(event_id, sport)
 
     if not box:
@@ -2615,243 +2641,278 @@ elif st.session_state.page == "live_game":
         st.stop()
 
     game_status = box.get("status", "pre")
-    hs = box.get("home_score", 0)
-    as_ = box.get("away_score", 0)
-    period = box.get("period", 0)
-    clock  = box.get("clock", "")
-    h_logo = box.get("home_logo", "")
-    a_logo = box.get("away_logo", "")
-    h_name = box.get("home_team") or home_t
-    a_name = box.get("away_team") or away_t
-
-    # Status banner
-    if game_status == "in":
-        period_label = f"H{period}" if period <= 2 else f"OT{period-2}"
-        status_label = f"🔴 LIVE · {period_label} {clock}"
-        status_color = "#ef4444"
-    elif game_status == "post":
-        status_label = "✅ FINAL"
-        status_color = "#4ade80"
-    else:
-        status_label = "🕐 PRE-GAME"
-        status_color = "#fbbf24"
-
-    # ── Score Hero Card ─────────────────────────────────────────────────────
-    winner_away = as_ > hs
-    winner_home = hs > as_
-    away_weight = "900" if winner_away else "500"
-    home_weight = "900" if winner_home else "500"
+    hs          = box.get("home_score", 0)
+    as_         = box.get("away_score", 0)
+    period      = box.get("period", 0)
+    clock       = box.get("clock", "")
+    h_logo      = box.get("home_logo", "")
+    a_logo      = box.get("away_logo", "")
+    h_name      = box.get("home_team") or home_t
+    a_name      = box.get("away_team") or away_t
     venue_str   = box.get("venue", "")
 
-    # Determine which team the bet is on (for highlighting)
-    away_bet_ring = "box-shadow:0 0 0 3px #f97316" if (_bet_side == "AWAY" if bet else False) else ""
-    home_bet_ring = "box-shadow:0 0 0 3px #f97316" if (_bet_side == "HOME" if bet else False) else ""
+    if game_status == "in":
+        period_label = f"H{period}" if period <= 2 else f"OT{period - 2}"
+        status_label = f"LIVE \u00b7 {period_label} {clock}"
+        status_color = "#ef4444"
+        status_bg    = "rgba(239,68,68,.12)"
+        dot_html     = (
+            '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
+            'background:#ef4444;animation:live_pulse 1.2s infinite;'
+            'vertical-align:middle;margin-right:5px"></span>'
+        )
+    elif game_status == "post":
+        period_label = ""
+        status_label = "FINAL"
+        status_color = "#4ade80"
+        status_bg    = "rgba(74,222,128,.1)"
+        dot_html     = "\u2705 "
+    else:
+        period_label = ""
+        status_label = "PRE-GAME"
+        status_color = "#fbbf24"
+        status_bg    = "rgba(251,191,36,.1)"
+        dot_html     = "\U0001f550 "
 
-    _status_pulse = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.2s infinite;margin-right:6px"></span>' if game_status == "in" else ""
-    _bet_row = f'<div style="margin-top:.8rem;font-size:.85rem;color:#9ca3af">Your Bet: <b style="color:#f97316;font-size:.95rem">{market_str}</b></div>' if market_str else ""
-    _venue_row = f'<div style="font-size:.78rem;color:#6b7280;margin-top:.3rem">📍 {venue_str}</div>' if venue_str else ""
+    winner_away  = as_ > hs
+    winner_home  = hs > as_
+    away_w       = "900" if winner_away else "500"
+    home_w       = "900" if winner_home else "500"
+    away_op      = "1"   if (winner_away or game_status != "post") else ".5"
+    home_op      = "1"   if (winner_home or game_status != "post") else ".5"
+
+    away_ring = (
+        "outline:3px solid #f97316;outline-offset:4px;border-radius:10px;"
+        if (bet and _bet_side == "AWAY") else ""
+    )
+    home_ring = (
+        "outline:3px solid #f97316;outline-offset:4px;border-radius:10px;"
+        if (bet and _bet_side == "HOME") else ""
+    )
+
+    _bet_row   = (
+        f'<div style="margin-top:.9rem;display:inline-block;padding:.4rem .9rem;'
+        f'background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.3);'
+        f'border-radius:8px;font-size:.84rem">'
+        f'\U0001f3af Your bet: <b style="color:#f97316">{market_str}</b></div>'
+        if market_str else ""
+    )
+    _venue_row = (
+        f'<div style="font-size:.73rem;color:#6b7280;margin-top:.45rem">\U0001f4cd {venue_str}</div>'
+        if venue_str else ""
+    )
 
     st.markdown(f"""
-    <style>
-    @keyframes pulse {{
-      0%,100% {{ opacity:1; transform:scale(1); }}
-      50%      {{ opacity:.5; transform:scale(1.3); }}
-    }}
-    </style>
-    <div class="glass-card" style="padding:1.8rem 1.5rem;text-align:center;margin-bottom:1.2rem;
-         background:linear-gradient(145deg,#111827,#1c2537);border:1px solid #2d3748">
-      <div style="font-size:.82rem;font-weight:800;color:{status_color};margin-bottom:1rem;
-                  letter-spacing:.1em;text-transform:uppercase">
-        {_status_pulse}{status_label}
-      </div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:1.5rem">
-        <!-- Away team -->
-        <div style="text-align:center;flex:1">
-          <div style="font-size:.65rem;color:#9ca3af;font-weight:700;letter-spacing:.12em;margin-bottom:.4rem">AWAY</div>
-          <img src="{a_logo}" style="height:68px;object-fit:contain;{away_bet_ring};border-radius:8px" onerror="this.style.display='none'">
-          <div style="font-weight:{away_weight};margin-top:.5rem;font-size:.95rem;line-height:1.2">{a_name}</div>
-        </div>
-        <!-- Score -->
-        <div style="text-align:center;min-width:130px">
-          <div style="font-size:3.2rem;font-weight:900;letter-spacing:-3px;
-                      background:linear-gradient(135deg,#f9fafb,#9ca3af);
-                      -webkit-background-clip:text;-webkit-text-fill-color:transparent">{as_}&nbsp;–&nbsp;{hs}</div>
-        </div>
-        <!-- Home team -->
-        <div style="text-align:center;flex:1">
-          <div style="font-size:.65rem;color:#9ca3af;font-weight:700;letter-spacing:.12em;margin-bottom:.4rem">HOME</div>
-          <img src="{h_logo}" style="height:68px;object-fit:contain;{home_bet_ring};border-radius:8px" onerror="this.style.display='none'">
-          <div style="font-weight:{home_weight};margin-top:.5rem;font-size:.95rem;line-height:1.2">{h_name}</div>
-        </div>
-      </div>
-      {_bet_row}
-      {_venue_row}
+<style>
+@keyframes live_pulse {{
+  0%,100% {{ opacity:1; transform:scale(1); }}
+  50%      {{ opacity:.4; transform:scale(1.4); }}
+}}
+</style>
+<div style="background:linear-gradient(145deg,#0f1623,#1a2236);border:1px solid #2d3748;
+            border-radius:16px;padding:2rem 1.5rem;text-align:center;margin-bottom:1.4rem;
+            box-shadow:0 4px 24px rgba(0,0,0,.45)">
+  <div style="display:inline-flex;align-items:center;gap:4px;padding:.3rem .85rem;
+              background:{status_bg};border:1px solid {status_color}44;border-radius:99px;
+              font-size:.75rem;font-weight:800;color:{status_color};letter-spacing:.1em;
+              margin-bottom:1.2rem">
+    {dot_html}{status_label}
+  </div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:1.5rem;flex-wrap:wrap">
+    <div style="text-align:center;flex:1;min-width:110px;opacity:{away_op}">
+      <div style="font-size:.6rem;color:#6b7280;font-weight:700;letter-spacing:.15em;margin-bottom:.4rem">AWAY</div>
+      <img src="{a_logo}" style="height:70px;object-fit:contain;{away_ring}" onerror="this.style.display='none'">
+      <div style="font-weight:{away_w};margin-top:.45rem;font-size:.95rem;line-height:1.2">{a_name}</div>
     </div>
-    """, unsafe_allow_html=True)
+    <div style="text-align:center;min-width:130px">
+      <div style="font-size:3.4rem;font-weight:900;letter-spacing:-3px;
+                  background:linear-gradient(135deg,#f9fafb 40%,#9ca3af);
+                  -webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1">
+        {as_}\u00a0\u2013\u00a0{hs}
+      </div>
+    </div>
+    <div style="text-align:center;flex:1;min-width:110px;opacity:{home_op}">
+      <div style="font-size:.6rem;color:#6b7280;font-weight:700;letter-spacing:.15em;margin-bottom:.4rem">HOME</div>
+      <img src="{h_logo}" style="height:70px;object-fit:contain;{home_ring}" onerror="this.style.display='none'">
+      <div style="font-weight:{home_w};margin-top:.45rem;font-size:.95rem;line-height:1.2">{h_name}</div>
+    </div>
+  </div>
+  {_bet_row}
+  {_venue_row}
+</div>
+""", unsafe_allow_html=True)
 
-    # ── Box Score Tables ─────────────────────────────────────────────────────
+    # ── Box Score ─────────────────────────────────────────────────────────────
+    st.markdown(
+        '<div style="font-size:.65rem;font-weight:800;color:#6b7280;'
+        'letter-spacing:.16em;margin:.5rem 0 .5rem">\U0001f4cb BOX SCORE</div>',
+        unsafe_allow_html=True
+    )
     teams = box.get("teams", [])
     if teams:
-        st.markdown('<div class="indie-section-hdr">📋 Box Score</div>', unsafe_allow_html=True)
         tab_cols = st.columns(len(teams))
-        KEY_STATS = ["PTS", "REB", "AST", "FG", "3PT", "MIN"]
-
+        KEY_STATS = ["MIN", "PTS", "REB", "AST", "FG", "3PT"]
         for col, team_data in zip(tab_cols, teams):
             with col:
-                st.markdown(f"**{team_data['team']}**")
-                players = team_data.get("players", [])
+                st.markdown(
+                    f'<div style="font-weight:700;font-size:.88rem;margin-bottom:.25rem">'
+                    f'{team_data["team"]}</div>',
+                    unsafe_allow_html=True
+                )
+                players  = team_data.get("players", [])
                 if not players:
                     st.caption("No player data yet.")
                     continue
-
-                labels = players[0].get("labels", [])
+                labels   = players[0].get("labels", [])
                 show_idx = [i for i, lbl in enumerate(labels) if lbl in KEY_STATS]
-                show_labels = [labels[i] for i in show_idx]
-
+                show_lbl = [labels[i] for i in show_idx]
                 rows = []
-                for p in players[:10]:  # top 10 by order (starter order)
+                for p in players[:10]:
                     stats = p.get("stats", [])
-                    row = {"Player": p["name"]}
-                    for i, lbl in zip(show_idx, show_labels):
+                    row   = {"Player": p["name"]}
+                    for i, lbl in zip(show_idx, show_lbl):
                         row[lbl] = stats[i] if i < len(stats) else "-"
                     rows.append(row)
-
                 if rows:
-                    import pandas as pd
-                    df = pd.DataFrame(rows)
-                    st.dataframe(df, hide_index=True, use_container_width=True)
+                    st.dataframe(
+                        pd.DataFrame(rows),
+                        hide_index=True,
+                        use_container_width=True,
+                        height=min(380, 38 + 35 * len(rows)),
+                    )
+    elif game_status == "pre":
+        st.info("Box score will appear once the game tips off.")
     else:
-        if game_status == "pre":
-            st.info("Box score will appear once the game tips off.")
-        else:
-            st.caption("Box score data not available.")
+        st.caption("Box score data not available.")
 
+    # ── AI Scouting Report ────────────────────────────────────────────────────
+    st.markdown(
+        '<div style="font-size:.65rem;font-weight:800;color:#6b7280;'
+        'letter-spacing:.16em;margin:1.1rem 0 .5rem">\U0001f50d AI SCOUTING REPORT</div>',
+        unsafe_allow_html=True
+    )
+    scout_key   = f"scout_{event_id}"
+    scout_text  = st.session_state.live_analysis_cache.get(scout_key)
 
-    # ── AI Scouting Report ───────────────────────────────────────────────────
-    if not bet:
-        st.markdown('''<div class="glass-card" style="padding:.9rem 1.2rem;border-left:3px solid #6b7280;margin-bottom:1rem">
-          <span style="color:#9ca3af;font-size:.9rem">👀 Watching without a bet — scouting report and live analysis not available.</span>
-        </div>''', unsafe_allow_html=True)
+    if not scout_text:
+        def _build_team_ctx(tname: str) -> str:
+            _lines = [f"Team: {tname}"]
+            _eid = get_espn_team_id(tname, sport)
+            if _eid:
+                _sm = fetch_team_summary(_eid, sport)
+                if _sm:
+                    _lines.append(
+                        f"Record: {_sm.get('record','N/A')} "
+                        f"(Home: {_sm.get('home_record','?')}, Road: {_sm.get('road_record','?')})"
+                    )
+                    if _sm.get("rank"):
+                        _lines.append(f"AP Rank: #{_sm['rank']}")
+                    if _sm.get("standing"):
+                        _lines.append(f"Conference: {_sm['standing']}")
+            _all = ledger.get_all_team_stats()
+            _ts  = next((r for r in _all if r.get("team_name","").lower() == tname.lower()), None)
+            if _ts:
+                _lines.append(
+                    f"AdjO: {_ts.get('adj_o','N/A')}, AdjD: {_ts.get('adj_d','N/A')}, "
+                    f"Pace: {_ts.get('pace','N/A')}, 3PT%: {_ts.get('three_pt_rate','N/A')}"
+                )
+            return "\n".join(_lines)
 
-    st.markdown('<div class="indie-section-hdr">🔍 AI Scouting Report</div>', unsafe_allow_html=True)
-
-    scout_cache_key = f"scout_{bet_id}_{event_id}"
-    scout_cached = st.session_state.live_analysis_cache.get(scout_cache_key)
-
-    if scout_cached:
-        scouting_text = scout_cached
-    else:
-        # Build team context from ESPN summaries + DB stats
-        from src.tools.espn_client import get_espn_team_id, fetch_team_summary
-        from src.db.storage import BetLedger as _BL
-        _ledger = _BL()
-
-        def _build_team_ctx(team_name: str) -> str:
-            lines = [f"Team: {team_name}"]
-            # ESPN summary
-            eid = get_espn_team_id(team_name, sport)
-            if eid:
-                summary = fetch_team_summary(eid, sport)
-                if summary:
-                    lines.append(f"Record: {summary.get('record', 'N/A')} (Home: {summary.get('home_record', '?')}, Road: {summary.get('road_record', '?')})")
-                    if summary.get('rank'):
-                        lines.append(f"AP Rank: #{summary['rank']}")
-                    if summary.get('standing'):
-                        lines.append(f"Conference: {summary['standing']}")
-            # DB stats (efficiency metrics)
-            all_stats = _ledger.get_all_team_stats()
-            ts = next((r for r in all_stats if r.get("team_name", "").lower() == team_name.lower()), None)
-            if ts:
-                lines.append(f"AdjO: {ts.get('adj_o', 'N/A')}, AdjD: {ts.get('adj_d', 'N/A')}, Pace: {ts.get('pace', 'N/A')}")
-                lines.append(f"3PT Rate: {ts.get('three_pt_rate', 'N/A')}, FT Rate: {ts.get('ft_rate', 'N/A')}")
-            return "\n".join(lines)
-
-        with st.spinner("Generating scouting report..."):
+        with st.spinner("Building scouting report\u2026"):
             try:
-                from src.agents.post_mortem import generate_scouting_report
-                team_ctx = _build_team_ctx(away_t) + "\n\n" + _build_team_ctx(home_t)
-                scouting_text = asyncio.run(
+                _ctx = _build_team_ctx(away_t) + "\n\n" + _build_team_ctx(home_t)
+                scout_text = asyncio.run(
                     generate_scouting_report(
                         away_team=a_name or away_t,
                         home_team=h_name or home_t,
-                        team_context=team_ctx,
+                        team_context=_ctx,
                     )
                 )
-                st.session_state.live_analysis_cache[scout_cache_key] = scouting_text
-            except Exception as e:
-                scouting_text = f"Scouting report unavailable: {e}"
+                st.session_state.live_analysis_cache[scout_key] = scout_text
+            except Exception as _se:
+                scout_text = f"Scouting report unavailable: {_se}"
 
-    # Render scouting report using Streamlit markdown (supports bold/bullets natively)
     st.markdown(
-        f'''<div class="glass-card" style="padding:1.2rem;border-left:3px solid #38bdf8">
-        <div style="font-size:.8rem;color:#38bdf8;font-weight:700;margin-bottom:.7rem">�� PRE-GAME SCOUT</div>
-        </div>''',
+        f'<div style="background:linear-gradient(145deg,#0a1520,#0f1b2d);'
+        f'border:1px solid #1e3a5f;border-left:3px solid #38bdf8;'
+        f'border-radius:10px;padding:1.2rem 1.4rem;line-height:1.7;font-size:.9rem">'
+        f'{scout_text.replace(chr(10), "<br>")}</div>',
         unsafe_allow_html=True
     )
-    st.markdown(scouting_text)
 
-    # ── AI Live Analysis ─────────────────────────────────────────────────────
-    st.markdown('<div class="indie-section-hdr">🤖 AI Live Analysis</div>', unsafe_allow_html=True)
+    # ── AI Live Analysis ──────────────────────────────────────────────────────
+    st.markdown(
+        '<div style="font-size:.65rem;font-weight:800;color:#6b7280;'
+        'letter-spacing:.16em;margin:1.1rem 0 .5rem">\U0001f916 AI LIVE ANALYSIS</div>',
+        unsafe_allow_html=True
+    )
 
-    cache_key = f"{bet_id}_{event_id}_{game_status}_{hs}_{as_}"
-    cached = st.session_state.live_analysis_cache.get(cache_key)
+    live_key      = f"live_{event_id}_{game_status}_{hs}_{as_}"
+    analysis_text = st.session_state.live_analysis_cache.get(live_key)
 
-    if cached:
-        analysis_text = cached
-    else:
-        # Build context string from box score
-        score_ctx = f"Current score: {a_name} {as_}, {h_name} {hs}"
+    if not analysis_text and bet:
+        _score_ctx = f"Current score: {a_name} {as_}, {h_name} {hs}"
         if game_status == "in":
-            score_ctx += f" ({period_label}, {clock} remaining)"
+            _score_ctx += f" ({period_label}, {clock} remaining)"
         elif game_status == "post":
-            score_ctx += " — FINAL"
+            _score_ctx += " \u2014 FINAL"
+        _top = []
+        for _td in teams:
+            _pts_i = None
+            if _td["players"]:
+                _labs = _td["players"][0].get("labels", [])
+                _pts_i = _labs.index("PTS") if "PTS" in _labs else None
+            if _pts_i is not None:
+                for _p in _td["players"][:3]:
+                    _pts = _p["stats"][_pts_i] if _pts_i < len(_p["stats"]) else "?"
+                    _top.append(f"{_p['name']} ({_td['team']}): {_pts} pts")
+        if _top:
+            _score_ctx += "\nTop scorers: " + ", ".join(_top[:6])
 
-        top_scorers = []
-        for td in teams:
-            pts_idx = None
-            if td["players"]:
-                labs = td["players"][0].get("labels", [])
-                pts_idx = labs.index("PTS") if "PTS" in labs else None
-            if pts_idx is not None:
-                for p in td["players"][:3]:
-                    pts = p["stats"][pts_idx] if pts_idx < len(p["stats"]) else "?"
-                    top_scorers.append(f"{p['name']} ({td['team']}): {pts} pts")
-        if top_scorers:
-            score_ctx += "\nTop scorers: " + ", ".join(top_scorers[:6])
+        _explicit = market_str
+        if _bet_side == "HOME":
+            _explicit = f"{market_str} (betting on {h_name} to win/cover)"
+        elif _bet_side == "AWAY":
+            _explicit = f"{market_str} (betting on {a_name} to win/cover)"
 
-        with st.spinner("Generating AI analysis..."):
+        with st.spinner("Generating AI analysis\u2026"):
             try:
-                # Build detailed market string with explicit team names so AI
-                # can't confuse HOME/AWAY labels with team names
-                _explicit_market = market_str
-                if bet and _bet_side == "HOME":
-                    _explicit_market = f"{market_str} (betting on {h_name} to cover)"
-                elif bet and _bet_side == "AWAY":
-                    _explicit_market = f"{market_str} (betting on {a_name} to cover)"
-
                 analysis_text = asyncio.run(
                     generate_live_analysis(
                         matchup=f"{a_name} (AWAY) @ {h_name} (HOME)",
-                        market=_explicit_market,
-                        rationale=bet.get("summary", "No rationale recorded.") if bet else "No bet — watching game live.",
-                        live_context=score_ctx,
+                        market=_explicit,
+                        rationale=bet.get("summary", "No rationale recorded."),
+                        live_context=_score_ctx,
                     )
                 )
-                st.session_state.live_analysis_cache[cache_key] = analysis_text
-            except Exception as e:
-                analysis_text = f"AI analysis unavailable: {e}"
+                st.session_state.live_analysis_cache[live_key] = analysis_text
+            except Exception as _ae:
+                analysis_text = f"AI analysis unavailable: {_ae}"
 
-    st.markdown(f"""
-    <div class="glass-card" style="padding:1.2rem;border-left:3px solid #a855f7">
-      <div style="font-size:.8rem;color:#a855f7;font-weight:700;margin-bottom:.5rem">🪄 AI EDGE ANALYSIS</div>
-      <div style="font-size:.95rem;line-height:1.6">{analysis_text}</div>
-    </div>""", unsafe_allow_html=True)
+    if analysis_text:
+        st.markdown(
+            f'<div style="background:linear-gradient(145deg,#14102a,#1a1433);'
+            f'border:1px solid #2d1f5e;border-left:3px solid #a855f7;'
+            f'border-radius:10px;padding:1.2rem 1.4rem;line-height:1.7;font-size:.9rem">'
+            f'{analysis_text.replace(chr(10), "<br>")}</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            '<div style="background:#111827;border:1px solid #2d3748;border-radius:10px;'
+            'padding:1rem;color:#6b7280;font-size:.88rem;text-align:center">'
+            '\U0001f440 Live analysis available when viewing from an approved bet</div>',
+            unsafe_allow_html=True
+        )
 
-    # refresh button
+    # ── Refresh ───────────────────────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔄 Refresh Score", key="live_refresh"):
-        # Clear cache for this bet so AI reruns with new score
-        for k in list(st.session_state.live_analysis_cache.keys()):
-            if k.startswith(bet_id):
-                del st.session_state.live_analysis_cache[k]
-        st.rerun()
+    _r1, _r2 = st.columns([5, 1])
+    with _r2:
+        if st.button("\U0001f504 Refresh", key="live_refresh", use_container_width=True):
+            _kill = [k for k in st.session_state.live_analysis_cache
+                     if event_id in k]
+            for _k in _kill:
+                del st.session_state.live_analysis_cache[_k]
+            st.rerun()
+
