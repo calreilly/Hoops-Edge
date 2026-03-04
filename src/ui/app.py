@@ -2563,7 +2563,9 @@ elif st.session_state.page == "live_game":
     home_t = bet["home_team"]
     sport  = bet.get("sport_key", "basketball_ncaab")
     matchup_str = f"{away_t} @ {home_t}"
-    market_str  = f"{bet['bet_type'].upper()} {bet['side'].upper()} ({bet['line']:+.1f})"
+    _line = bet.get('line')
+    _line_part = f' ({_line:+.1f})' if _line is not None else ''
+    market_str  = f"{bet['bet_type'].upper()} {bet['side'].upper()}{_line_part}"
 
     # ── Find ESPN event ─────────────────────────────────────────────────────
     with st.spinner(f"Looking up {matchup_str} on ESPN..."):
@@ -2678,6 +2680,65 @@ elif st.session_state.page == "live_game":
             st.info("Box score will appear once the game tips off.")
         else:
             st.caption("Box score data not available.")
+
+
+    # ── AI Scouting Report ───────────────────────────────────────────────────
+    st.markdown('<div class="indie-section-hdr">🔍 AI Scouting Report</div>', unsafe_allow_html=True)
+
+    scout_cache_key = f"scout_{bet_id}_{event_id}"
+    scout_cached = st.session_state.live_analysis_cache.get(scout_cache_key)
+
+    if scout_cached:
+        scouting_text = scout_cached
+    else:
+        # Build team context from ESPN summaries + DB stats
+        from src.tools.espn_client import get_espn_team_id, fetch_team_summary
+        from src.db.storage import BetLedger as _BL
+        _ledger = _BL()
+
+        def _build_team_ctx(team_name: str) -> str:
+            lines = [f"Team: {team_name}"]
+            # ESPN summary
+            eid = get_espn_team_id(team_name, sport)
+            if eid:
+                summary = fetch_team_summary(eid, sport)
+                if summary:
+                    lines.append(f"Record: {summary.get('record', 'N/A')} (Home: {summary.get('home_record', '?')}, Road: {summary.get('road_record', '?')})")
+                    if summary.get('rank'):
+                        lines.append(f"AP Rank: #{summary['rank']}")
+                    if summary.get('standing'):
+                        lines.append(f"Conference: {summary['standing']}")
+            # DB stats (efficiency metrics)
+            all_stats = _ledger.get_all_team_stats()
+            ts = next((r for r in all_stats if r.get("team_name", "").lower() == team_name.lower()), None)
+            if ts:
+                lines.append(f"AdjO: {ts.get('adj_o', 'N/A')}, AdjD: {ts.get('adj_d', 'N/A')}, Pace: {ts.get('pace', 'N/A')}")
+                lines.append(f"3PT Rate: {ts.get('three_pt_rate', 'N/A')}, FT Rate: {ts.get('ft_rate', 'N/A')}")
+            return "\n".join(lines)
+
+        with st.spinner("Generating scouting report..."):
+            try:
+                from src.agents.post_mortem import generate_scouting_report
+                team_ctx = _build_team_ctx(away_t) + "\n\n" + _build_team_ctx(home_t)
+                scouting_text = asyncio.run(
+                    generate_scouting_report(
+                        away_team=a_name or away_t,
+                        home_team=h_name or home_t,
+                        team_context=team_ctx,
+                    )
+                )
+                st.session_state.live_analysis_cache[scout_cache_key] = scouting_text
+            except Exception as e:
+                scouting_text = f"Scouting report unavailable: {e}"
+
+    # Render scouting report using Streamlit markdown (supports bold/bullets natively)
+    st.markdown(
+        f'''<div class="glass-card" style="padding:1.2rem;border-left:3px solid #38bdf8">
+        <div style="font-size:.8rem;color:#38bdf8;font-weight:700;margin-bottom:.7rem">�� PRE-GAME SCOUT</div>
+        </div>''',
+        unsafe_allow_html=True
+    )
+    st.markdown(scouting_text)
 
     # ── AI Live Analysis ─────────────────────────────────────────────────────
     st.markdown('<div class="indie-section-hdr">🤖 AI Live Analysis</div>', unsafe_allow_html=True)

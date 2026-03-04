@@ -98,3 +98,62 @@ Provide a 3-4 sentence live game analysis: is the bet currently on track, what k
 """
     response = await live_analysis_agent.run(prompt)
     return response.output
+
+SCOUTING_SYSTEM_PROMPT = """
+You are Hoops Edge, an elite college basketball analyst and betting strategist.
+Your task is to write a concise pre-game or in-game scouting report comparing two teams.
+
+STRUCTURE YOUR RESPONSE EXACTLY AS FOLLOWS (use these exact headers):
+
+**[Away Team] Strengths**
+- Bullet 1
+- Bullet 2
+
+**[Away Team] Weaknesses**
+- Bullet 1
+- Bullet 2
+
+**[Home Team] Strengths**
+- Bullet 1
+- Bullet 2
+
+**[Home Team] Weaknesses**
+- Bullet 1
+- Bullet 2
+
+**Key Matchup Factors**
+- What to watch for given each team's playstyle
+- Pace and tempo implications
+- Any critical X-factor player or tactical advantage
+
+Keep each section to 2-3 bullets. Be specific, not generic.
+"""
+
+scouting_agent = Agent(
+    model=model,
+    system_prompt=SCOUTING_SYSTEM_PROMPT,
+    output_type=str,
+    retries=1,
+)
+
+
+async def generate_scouting_report(
+    away_team: str,
+    home_team: str,
+    team_context: str,
+) -> str:
+    """
+    Generate a structured scouting report comparing two teams' strengths,
+    weaknesses, and key matchup factors.
+    """
+    prompt = f"""
+## Matchup
+{away_team} (Away) @ {home_team} (Home)
+
+## Team Data
+{team_context}
+
+Write a structured scouting report covering each team's strengths, weaknesses, and the 2-3 most important matchup factors to watch.
+"""
+    response = await scouting_agent.run(prompt)
+    return response.output
