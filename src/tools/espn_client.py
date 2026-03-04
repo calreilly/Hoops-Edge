@@ -708,6 +708,17 @@ def fetch_live_boxscore(
 
     result_str = f"{away_name} {away_score}, {home_name} {home_score}" if game_status == "post" else ""
 
+    # Venue from the full competition detail endpoint
+    venue_obj = d.get("gameInfo", {}).get("venue", {})
+    venue_name = venue_obj.get("fullName", "")
+    venue_city = venue_obj.get("address", {}).get("city", "")
+    venue_state = venue_obj.get("address", {}).get("state", "")
+    venue_str = venue_name
+    if venue_city:
+        venue_str += f", {venue_city}"
+        if venue_state:
+            venue_str += f", {venue_state}"
+
     return {
         "status":     game_status,
         "home_team":  home_name,
@@ -720,6 +731,7 @@ def fetch_live_boxscore(
         "clock":      clock,
         "teams":      teams_box,
         "result":     result_str,
+        "venue":      venue_str,
     }
 
 
