@@ -668,6 +668,7 @@ with st.sidebar:
     nav_btn("📈", "Performance", "history")
     nav_btn("🏀", "Teams", "teams")
     nav_btn("🔍", "Game Search", "search")
+    nav_btn("🏆", "Tournament Predictor", "tourney")
 
     st.markdown("---")
 
@@ -2915,4 +2916,139 @@ elif st.session_state.page == "live_game":
             for _k in _kill:
                 del st.session_state.live_analysis_cache[_k]
             st.rerun()
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: TOURNAMENT PREDICTOR
+# ══════════════════════════════════════════════════════════════════════════════
+elif st.session_state.page == "tourney":
+    from src.tools.math_model import project_matchup
+    from src.agents.post_mortem import generate_scouting_report
+    import asyncio
+    
+    st.markdown('<div class="page-title">🏆 March Madness Predictor</div>', unsafe_allow_html=True)
+    st.markdown('''
+    <div style="font-size:0.9rem; color:#9ca3af; margin-bottom: 2rem;">
+        Simulate any head-to-head matchup using KenPom-style efficiency metrics (AdjO, AdjD, Pace).
+        Perfect for bracket research and finding +EV upsets.
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    # 1. Fetch available teams
+    all_team_stats = ledger.get_all_team_stats()
+    if not all_team_stats:
+        st.warning("No team stats available. Please run data ingest first.")
+        st.stop()
+        
+    team_names = sorted([t["team_name"] for t in all_team_stats])
+    
+    # Session state for selections
+    if "tourney_away" not in st.session_state:
+        st.session_state.tourney_away = team_names[0] if team_names else ""
+    if "tourney_home" not in st.session_state:
+        st.session_state.tourney_home = team_names[1] if len(team_names) > 1 else ""
+        
+    # Team Selector UI
+    st.markdown("### Matchup Selection")
+    col1, col2, col3 = st.columns([4, 1, 4])
+    with col1:
+        away_choice = st.selectbox("Away / Lower Seed", options=team_names, index=team_names.index(st.session_state.tourney_away) if st.session_state.tourney_away in team_names else 0)
+    with col2:
+        st.markdown('<div style="text-align:center; font-size:1.5rem; font-weight:800; margin-top:1.5rem; color:#6b7280;">@</div>', unsafe_allow_html=True)
+    with col3:
+        home_choice = st.selectbox("Home / Higher Seed", options=team_names, index=team_names.index(st.session_state.tourney_home) if st.session_state.tourney_home in team_names else 0)
+    
+    is_neutral = st.checkbox("Neutral Site Game (March Madness is always neutral site)", value=True)
+    
+    st.session_state.tourney_away = away_choice
+    st.session_state.tourney_home = home_choice
+    
+    if away_choice == home_choice:
+        st.error("Please select two different teams.")
+        st.stop()
+        
+    # Get stats dictionary for the choices
+    away_stats = next((t for t in all_team_stats if t["team_name"] == away_choice), {})
+    home_stats = next((t for t in all_team_stats if t["team_name"] == home_choice), {})
+    
+    # 2. Mathematical Projection
+    st.markdown("---")
+    res = project_matchup(away_stats, home_stats, is_neutral_site=is_neutral)
+    
+    # Display the projection
+    st.markdown("### 📊 Mathematical Projection")
+    
+    # Hero Result Card
+    home_favored = res["projected_margin"] > 0
+    favored_team = home_choice if home_favored else away_choice
+    underdog = away_choice if home_favored else home_choice
+    margin = abs(res["projected_margin"])
+    fav_win_prob = res["home_win_prob"] if home_favored else res["away_win_prob"]
+    
+    st.markdown(f'''
+    <div class="glass-card" style="padding: 2rem; text-align: center; margin-bottom: 2rem; border-left: 4px solid #f97316;">
+        <div style="font-size: 1.1rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem;">Predicted Winner</div>
+        <div style="font-size: 2.5rem; font-weight: 900; background: linear-gradient(135deg, #f9fafb, #9ca3af); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+            {favored_team} by {margin:.1f}
+        </div>
+        <div style="font-size: 1rem; color: #fbbf24; margin-top: 0.5rem; font-weight: 600;">
+            {favored_team} {fav_win_prob*100:.1f}% Win Probability
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    # Detail columns
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(f"**Projected Score**<br>{away_choice}: {res['away_score']:.1f}<br>{home_choice}: {res['home_score']:.1f}", unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"**Efficiency Profile**<br>{away_choice} AdjO/AdjD: {away_stats.get('adj_o', 'N/A')} / {away_stats.get('adj_d', 'N/A')}<br>{home_choice} AdjO/AdjD: {home_stats.get('adj_o', 'N/A')} / {home_stats.get('adj_d', 'N/A')}", unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"**Pace Details**<br>Expected Possessions: {res['expected_possessions']:.1f}<br>{away_choice} Pace: {away_stats.get('pace', 'N/A')}<br>{home_choice} Pace: {home_stats.get('pace', 'N/A')}", unsafe_allow_html=True)
+        
+    # 3. AI Scouting Report
+    st.markdown("---")
+    st.markdown("### 🔍 AI Deep Dive Scouting")
+    
+    scout_cache_key = f"tourney_scout_{away_choice}_{home_choice}"
+    if scout_cache_key in st.session_state.live_analysis_cache:
+        st.markdown(st.session_state.live_analysis_cache[scout_cache_key], unsafe_allow_html=True)
+        if st.button("Regenerate Scouting Report"):
+            del st.session_state.live_analysis_cache[scout_cache_key]
+            st.rerun()
+    else:
+        st.markdown("Get an AI summary on how these teams match up, their strengths and weaknesses, and X-factors.")
+        if st.button("Generate AI Scouting Report", type="primary"):
+            def _build_ctx(tname: str, tstats: dict) -> str:
+                return (
+                    f"Team: {tname}\n"
+                    f"AdjO: {tstats.get('adj_o')}, AdjD: {tstats.get('adj_d')}, Pace: {tstats.get('pace')}\n"
+                    f"3PTRate: {tstats.get('three_pt_rate')}, FTRate: {tstats.get('ft_rate')}"
+                )
+                
+            ctx = _build_ctx(away_choice, away_stats) + "\n\n" + _build_ctx(home_choice, home_stats)
+            
+            with st.spinner("Generating scouting report..."):
+                try:
+                    scout_text = asyncio.run(
+                        generate_scouting_report(
+                            away_team=away_choice,
+                            home_team=home_choice,
+                            team_context=ctx
+                        )
+                    )
+                    
+                    styled_text = f'''
+                    <div style="background:linear-gradient(145deg,#0a1520,#0f1b2d);
+                                border:1px solid #1e3a5f;border-left:3px solid #38bdf8;
+                                border-radius:10px;padding:1.4rem;line-height:1.7;font-size:0.95rem; margin-top:1rem;">
+                        {scout_text.replace(chr(10), "<br>")}
+                    </div>
+                    '''
+                    st.session_state.live_analysis_cache[scout_cache_key] = styled_text
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to generate scouting report: {e}")
+                    
 
