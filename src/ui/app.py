@@ -924,7 +924,7 @@ elif st.session_state.page == "slate":
         st.session_state.setdefault("sel_ncaaw", False)
         st.checkbox("NCAAW (Women's College)", key="sel_ncaaw")
     with c_l3:
-        st.session_state.setdefault("sel_nba", False)
+        st.session_state.setdefault("sel_nba", True)
         st.checkbox("NBA (Professional)", key="sel_nba")
 
     if st.button("📥 Load Today's Games", type="primary"):

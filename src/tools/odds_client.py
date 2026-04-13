@@ -276,8 +276,11 @@ def parse_odds_response(
             raw["commence_time"].replace("Z", "+00:00")
         ).astimezone(ET)  # convert UTC → Eastern
         
-        # Strictly filter to only include games played today
-        if game_time.date() != datetime.now(ET).date():
+        # Include games today and tomorrow (lines often post a day early)
+        today = datetime.now(ET).date()
+        from datetime import timedelta as _td
+        tomorrow = today + _td(days=1)
+        if game_time.date() not in (today, tomorrow):
             continue
             
         game_id = raw["id"]
@@ -391,7 +394,7 @@ def parse_odds_response(
     return games
 
 
-def get_live_games(ledger: BetLedger, sport_keys: list[str] = ["basketball_ncaab"]) -> list[Game]:
+def get_live_games(ledger: BetLedger, sport_keys: list[str] = ["basketball_ncaab", "basketball_nba"]) -> list[Game]:
     """
     Main entry point: fetch today's real slate for the given sports.
     Iterates through the requested sports and concats them.
@@ -418,9 +421,8 @@ def get_live_games(ledger: BetLedger, sport_keys: list[str] = ["basketball_ncaab
             print(f"  ❌ Error fetching {sport}: {e}")
 
     if not all_games:
-        print("  ℹ️  No games with FanDuel lines today across requested sports. Using mock data.")
-        from src.tools.mock_odds import get_mock_games
-        return get_mock_games()
+        print("  ℹ️  No games with lines found today/tomorrow across requested sports.")
+        return []
 
     print(f"\n  ✅ Combined Slate: {len(all_games)} games ready for EV Analysis.\n")
     return all_games
